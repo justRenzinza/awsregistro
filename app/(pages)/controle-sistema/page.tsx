@@ -323,7 +323,7 @@ export default function ControleDeSistemaPage() {
 				<div className="flex-1">
 					{/* topo mobile */}
 					<div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 sm:hidden">
-					     <button
+						<button
 							className="rounded-xl border px-3 py-2 text-sm shadow transition-transform hover:scale-105"
 							onClick={() => setOpenSidebar(true)}
 							aria-label="Abrir menu"
@@ -337,7 +337,7 @@ export default function ControleDeSistemaPage() {
 						{/* busca + ações (mobile e desktop separados) */}
 						<div className="mb-4 space-y-2">
 							{/* MOBILE: input + botões compactos */}
-							<div className="flex items-center gap-2 sm:hidden">
+							<div className="flex flex-wrap items-center gap-2 sm:hidden w-full">
 								<input
 									type="text"
 									placeholder="Pesquisa rápida"

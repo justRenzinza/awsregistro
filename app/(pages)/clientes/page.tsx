@@ -362,7 +362,7 @@ export default function ClientesPage() {
 						{/* busca + ações (mobile e desktop separados) */}
 						<div className="mb-4 space-y-2">
 							{/* MOBILE: input + botões compactos */}
-							<div className="flex items-center gap-2 sm:hidden">
+							<div className="flex flex-wrap items-center gap-2 sm:hidden w-full">
 								<input
 									type="text"
 									placeholder="Pesquisa rápida"
