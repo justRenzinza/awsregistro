@@ -474,23 +474,22 @@ export default function ControleDeSistemaPage() {
 							</div>
 							<div className="flex items-center gap-2" role="navigation" aria-label="Paginação">
 								<button
-									className="rounded-xl border border-gray-200 bg-white text-blue-500 px-2 py-2 w-9 h-9 text-sm shadow-sm transform transition-transform hover:scale-110"
+									className="flex text-sm items-center justify-center rounded-xl border border-gray-200 bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110"
 									onClick={() => setPage(1)}
 									disabled={page === 1}
 									aria-label="Primeira página"
 								>
-									⏪
+									◀◀
 								</button>
 								<button
-									className="rounded-xl border border-gray-200 bg-white text-blue-500 px-2 py-2 w-9 h-9 text-sm shadow-sm transform transition-transform hover:scale-110"
-									onClick={() => setPage((p) => Math.max(1, p - 1))}
+									className="flex text-sm items-center justify-center rounded-xl border border-gray-200 bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110"
 									disabled={page === 1}
 									aria-label="Página anterior"
 								>
 									◀
 								</button>
 								<button
-									className="rounded-xl border border-gray-200 bg-white text-blue-500 px-2 py-2 w-9 h-9 text-sm shadow-sm transform transition-transform hover:scale-110"
+									className="flex text-sm items-center justify-center rounded-xl border border-gray-200 bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110"
 									onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
 									disabled={page === totalPages}
 									aria-label="Próxima página"
@@ -498,11 +497,9 @@ export default function ControleDeSistemaPage() {
 									▶
 								</button>
 								<button
-									className="rounded-xl border border-gray-200 bg-white text-blue-500 px-2 py-2 w-9 h-9 text-sm shadow-sm transform transition-transform hover:scale-110"
-									onClick={() => setPage(totalPages)}
-									aria-label="Última página"
+									className="flex text-sm items-center justify-center rounded-xl border border-gray-200 bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110"
 								>
-									⏩
+									▶▶
 								</button>
 							</div>
 						</div>
