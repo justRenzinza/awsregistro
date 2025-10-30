@@ -535,6 +535,7 @@ export default function ControleDeSistemaPage() {
 											onChange={(e) => setForm(prev => ({ ...prev, clienteId: Number(e.target.value) }))}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										>
+											<option selected value="asdasd">Selecione uma empresa</option>
 											{clientes.map(c => (
 												<option key={c.id} value={c.id}>{c.nome}</option>
 											))}
