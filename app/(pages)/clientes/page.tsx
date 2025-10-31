@@ -15,16 +15,6 @@ export type Cliente = {
 	email: string;
 };
 
-const data_teste: Cliente[] = [
-	{ id: 1, codigo: 40, razaoSocial: "CACAU SUL COMERCIO ATACADISTA EIRELI", cnpj: "24109887000145", dataRegistro: "09/08/2023", contato: "TAMILES", telefone: "7332311343", email: "gerencia@cacausulcomercio.com.br" },
-	{ id: 2, codigo: 51, razaoSocial: "WKS EXPORTACOES LTDA", cnpj: "51447260000140", dataRegistro: "10/11/2023", contato: "WILLIAN", telefone: "27998612015", email: "louricafe@hotmail.com" },
-	{ id: 3, codigo: 52, razaoSocial: "ALLWARE TESTE", cnpj: "20853254000160", dataRegistro: "09/02/2024", contato: "ALLWARE", telefone: "2721230020", email: "comercial@allware.com.br" },
-	{ id: 4, codigo: 53, razaoSocial: "ALLWARE TESTE", cnpj: "22832313000149", dataRegistro: "09/02/2024", contato: "ALLWARE", telefone: "2721230020", email: "comercial@allware.com.br" },
-	{ id: 5, codigo: 54, razaoSocial: "ROBSON PASSOS BARBOSA (TESTE GIUCAFE LOCAL)", cnpj: "15206866000120", dataRegistro: "19/02/2024", contato: "ROBSON", telefone: "27998259141", email: "robson@allware.com.br" },
-	{ id: 6, codigo: 55, razaoSocial: "AGRO NORTE ARMAZENS GERAIS LTDA", cnpj: "47204452000159", dataRegistro: "20/02/2024", contato: "ALEX", telefone: "27996371350", email: "agronorteag@gmail.com" },
-	{ id: 7, codigo: 56, razaoSocial: "B.M. ARMAZENS GERAIS LTDA", cnpj: "02958756000173", dataRegistro: "06/03/2024", contato: "POLIANA", telefone: "27997959533", email: "—" },
-];
-
 /* ========= helpers visuais ========= */
 function formatCNPJ(v: string) {
 	const s = (v || "").replace(/\D/g, "").slice(0, 14);
@@ -70,7 +60,10 @@ function parseBRDate(d: string) {
 }
 
 /* ========= componente ========= */
-type SortKey = keyof Pick<Cliente, "codigo" | "razaoSocial" | "cnpj" | "dataRegistro" | "contato" | "telefone" | "email">;
+type SortKey = keyof Pick<
+	Cliente,
+	"codigo" | "razaoSocial" | "cnpj" | "dataRegistro" | "contato" | "telefone" | "email"
+>;
 type SortDir = "asc" | "desc" | null;
 
 export default function ClientesPage() {
@@ -80,7 +73,7 @@ export default function ClientesPage() {
 	const [pageSize] = useState(10);
 	const [sortKey, setSortKey] = useState<SortKey | null>(null);
 	const [sortDir, setSortDir] = useState<SortDir>(null);
-	const [rows, setRows] = useState<Cliente[]>(data_teste);
+	const [rows, setRows] = useState<Cliente[]>([]);
 
 	/* sidebar mobile */
 	const [openSidebar, setOpenSidebar] = useState(false);
@@ -90,11 +83,40 @@ export default function ClientesPage() {
 	const [editForm, setEditForm] = useState<Partial<Cliente>>({});
 	const [errors, setErrors] = useState<{ cnpj?: string; email?: string }>({});
 
-	/* busca + ordenação */
+	/* ====== carregar dados do banco ====== */
+	async function loadRows() {
+		try {
+			const resp = await fetch("/api/clientes", { cache: "no-store" });
+			if (!resp.ok) throw new Error(`Erro HTTP ${resp.status}`);
+			const json = await resp.json();
+			if (json?.ok && Array.isArray(json.data)) {
+				setRows(json.data as Cliente[]);
+			} else {
+				console.warn("Resposta inesperada de /api/clientes:", json);
+			}
+		} catch (e) {
+			console.error("Falha ao buscar clientes:", e);
+			alert("Não foi possível carregar os clientes.");
+		}
+	}
+
+	useEffect(() => {
+		loadRows();
+	}, []);
+
+	/* ===== busca + ordenação ===== */
 	const filtered = useMemo<Cliente[]>(() => {
 		const q = query.trim().toLowerCase();
 		let data = rows.filter((r) =>
-			[r.codigo, r.razaoSocial, r.cnpj, r.dataRegistro, r.contato, r.telefone, r.email]
+			[
+				String(r.codigo),
+				r.razaoSocial,
+				r.cnpj,
+				r.dataRegistro,
+				r.contato,
+				r.telefone,
+				r.email,
+			]
 				.join(" ")
 				.toLowerCase()
 				.includes(q)
@@ -138,6 +160,7 @@ export default function ClientesPage() {
 		};
 	}, [editingId]);
 
+	/* ===== ações ===== */
 	function toggleSort(key: SortKey) {
 		if (sortKey !== key) {
 			setSortKey(key);
@@ -151,18 +174,26 @@ export default function ClientesPage() {
 		} else setSortDir("asc");
 	}
 
-	function handleDelete(id: number) {
+	async function handleDelete(id: number) {
 		const alvo = rows.find((r) => r.id === id);
 		const nome = alvo?.razaoSocial ?? "este registro";
 		if (!window.confirm(`Tem certeza que deseja excluir ${nome}?`)) return;
-		setRows((prev) => prev.filter((r) => r.id !== id));
+		try {
+			const resp = await fetch(`/api/clientes/${id}`, { method: "DELETE" });
+			if (!resp.ok) throw new Error(`Erro HTTP ${resp.status}`);
+			await loadRows();
+		} catch (e) {
+			console.error("Falha ao excluir:", e);
+			alert("Não foi possível excluir o cliente.");
+		}
 	}
 
 	function handleEditOpen(id: number) {
 		const c = rows.find((r) => r.id === id);
 		if (!c) return;
 		setEditingId(id);
-		setEditForm({ ...c });
+		// edição com dígitos no CNPJ
+		setEditForm({ ...c, cnpj: c.cnpj?.replace(/\D/g, "") });
 		setErrors({});
 	}
 
@@ -172,43 +203,57 @@ export default function ClientesPage() {
 		setErrors({});
 	}
 
-	function handleEditSave() {
+	async function handleEditSave() {
 		if (editingId === null) return;
 
 		const errs: { cnpj?: string; email?: string } = {};
 		const email = (editForm.email ?? "").trim();
-		const cnpj = (editForm.cnpj ?? "").trim();
+		const cnpjDigits = (editForm.cnpj ?? "").toString().replace(/\D/g, "");
 
 		if (!email) errs.email = "Email é obrigatório.";
 		else if (!isValidEmail(email)) errs.email = "Email inválido.";
-		if (!cnpj) errs.cnpj = "CNPJ é obrigatório.";
-		else if (!isValidCNPJ(cnpj)) errs.cnpj = "CNPJ inválido.";
+		if (!cnpjDigits) errs.cnpj = "CNPJ é obrigatório.";
+		else if (!isValidCNPJ(cnpjDigits)) errs.cnpj = "CNPJ inválido.";
 
 		if (errs.email || errs.cnpj) {
 			setErrors(errs);
 			return;
 		}
 
-		if (editingId === 0) {
-			const novo: Cliente = {
-				id: Date.now(),
-				codigo: (editForm.codigo as number) ?? 0,
-				razaoSocial: editForm.razaoSocial ?? "",
-				cnpj,
-				dataRegistro: editForm.dataRegistro ?? new Date().toLocaleDateString("pt-BR"),
-				contato: editForm.contato ?? "",
-				telefone: editForm.telefone ?? "",
-				email,
-			};
-			setRows((prev) => [novo, ...prev]);
-		} else {
-			setRows((prev) =>
-				prev.map((r) => (r.id === editingId ? ({ ...r, ...editForm, email, cnpj } as Cliente) : r))
-			);
+		const payload = {
+			codigo: Number(editForm.codigo ?? 0),
+			razaoSocial: editForm.razaoSocial ?? "",
+			cnpj: cnpjDigits,
+			dataRegistro: editForm.dataRegistro ?? new Date().toLocaleDateString("pt-BR"),
+			contato: editForm.contato ?? "",
+			telefone: editForm.telefone ?? "",
+			email: email,
+		};
+
+		try {
+			if (editingId === 0) {
+				const resp = await fetch("/api/clientes", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payload),
+				});
+				if (!resp.ok) throw new Error(`Erro HTTP ${resp.status}`);
+			} else {
+				const resp = await fetch(`/api/clientes/${editingId}`, {
+					method: "PUT",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payload),
+				});
+				if (!resp.ok) throw new Error(`Erro HTTP ${resp.status}`);
+			}
+			setEditingId(null);
+			setEditForm({});
+			setErrors({});
+			await loadRows();
+		} catch (e) {
+			console.error("Falha ao salvar:", e);
+			alert("Não foi possível salvar o cliente.");
 		}
-		setEditingId(null);
-		setEditForm({});
-		setErrors({});
 	}
 
 	function handleAdd() {
@@ -542,6 +587,7 @@ export default function ClientesPage() {
 								</button>
 								<button
 									className="flex text-sm items-center justify-center rounded-xl border border-gray-200 bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110"
+									onClick={() => setPage(totalPages)}
 									disabled={page === totalPages}
 									aria-label="Última página"
 								>
@@ -566,7 +612,7 @@ export default function ClientesPage() {
 
 					{/* wrapper: full-screen no mobile, centralizado no desktop */}
 					<div className="absolute inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-3">
-						{/* card: ocupa a tela no mobile; no desktop vira caixa centralizada */}
+						{/* card */}
 						<div className="h-full w-full sm:h-auto sm:w-full sm:max-w-2xl rounded-none sm:rounded-xl bg-white shadow-lg overflow-y-auto">
 							<h2 className="sticky top-0 z-10 px-6 py-4 text-xl font-semibold text-blue-700 bg-white border-b">
 								{editingId === 0 ? "Adicionar Cliente" : "Editar Cliente"}
@@ -607,7 +653,7 @@ export default function ClientesPage() {
 												else setErrors((prev) => ({ ...prev, cnpj: undefined }));
 											}}
 											onBlur={() => {
-												setEditForm((prev) => ({ ...prev, cnpj: formatCNPJ(prev.cnpj ?? "") }));
+												setEditForm((prev) => ({ ...prev, cnpj: formatCNPJ(String(prev.cnpj ?? "")) }));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${errors.cnpj ? "border-red-500" : "border-gray-300"} text-black`}
 										/>
