@@ -469,7 +469,7 @@ export default function ClientesPage() {
 						{/* TABELA (sm+) */}
 						<div className="hidden sm:block rounded-xl bg-white shadow overflow-hidden">
 							<div className="w-full overflow-x-auto">
-								<table className="min-w-full border-separate border-spacing-0 text-sm">
+								<table className="w-full border-separate border-spacing-0 text-sm">
 									<thead>
 										<tr className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
 											<th className="px-3 py-3 w-28 text-center whitespace-nowrap">Ações</th>
