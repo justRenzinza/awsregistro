@@ -4,24 +4,23 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 
-/*
-	UI espera:
+type StatusContrato =
+	| "Regular"
+	| "Irregular (Sem Restrição)"
+	| "Irregular (Contrato Cancelado)"
+	| "Irregular (Com Restrição)";
 
-	{
-		id: number;
-		clienteId: number;
-		sistema: string;              // devolve "SACEX"
-		qtdLicenca: number;           // quantidade_licenca
-		qtdDiaLiberacao: number;      // quantidade_dia_liberacao
-		status: string;               // mapeado de id_status
-	}
+type LinhaControleSistema = {
+	id: number;
+	clienteId: number;
+	sistema: string;
+	qtdLicenca: number;
+	qtdDiaLiberacao: number;
+	status: StatusContrato | string;
+};
 
-	Tabela real: public.cliente_sistema
-	(id, id_cliente, id_sistema, quantidade_licenca, quantidade_dia_liberacao, id_status, observacao_status)
-*/
-
-// ------------------- helpers -------------------
-function statusIdToLabel(id: number | null): string {
+// ------------ helpers --------------
+function statusIdToLabel(id: number): StatusContrato {
 	switch (id) {
 		case 2:
 			return "Irregular (Sem Restrição)";
@@ -50,26 +49,63 @@ function statusLabelToId(label: string | null | undefined): number {
 	}
 }
 
-// ============= LISTAR TODOS (GET) =============
+async function getOrCreateSistemaId(nomeSistema: string): Promise<number> {
+	const nome = nomeSistema.trim();
+	if (!nome) {
+		throw new Error("Nome de sistema vazio.");
+	}
+
+	// procura pelo nome
+	const sqlBusca = `
+		SELECT id
+		FROM public.sistema
+		WHERE nome ILIKE $1
+		LIMIT 1;
+	`;
+	const resBusca = await query<{ id: number }>(sqlBusca, [nome]);
+	if (resBusca.rows.length > 0) {
+		return resBusca.rows[0].id;
+	}
+
+	// se não existir, cria
+	const sqlIns = `
+		INSERT INTO public.sistema (nome)
+		VALUES ($1)
+		RETURNING id;
+	`;
+	const resIns = await query<{ id: number }>(sqlIns, [nome]);
+	return resIns.rows[0].id;
+}
+
+// ============= LISTAR (GET) =============
 export async function GET() {
 	try {
 		const sql = `
 			SELECT
-				id,
-				id_cliente              AS "clienteId",
-				quantidade_licenca      AS "qtdLicenca",
-				quantidade_dia_liberacao AS "qtdDiaLiberacao",
-				id_status               AS "idStatus"
-			FROM public.cliente_sistema
-			ORDER BY id ASC;
+				cs.id,
+				cs.id_cliente              AS "clienteId",
+				s.nome                     AS sistema,
+				cs.quantidade_licenca      AS "qtdLicenca",
+				cs.quantidade_dia_liberacao AS "qtdDiaLiberacao",
+				cs.id_status               AS "idStatus"
+			FROM public.cliente_sistema cs
+			JOIN public.sistema s ON s.id = cs.id_sistema
+			ORDER BY cs.id;
 		`;
 
-		const { rows } = await query(sql);
+		const res = await query<{
+			id: number;
+			clienteId: number;
+			sistema: string;
+			qtdLicenca: number;
+			qtdDiaLiberacao: number;
+			idStatus: number;
+		}>(sql);
 
-		const data = (rows as any[]).map((r) => ({
+		const data: LinhaControleSistema[] = res.rows.map((r) => ({
 			id: r.id,
 			clienteId: r.clienteId,
-			sistema: "SACEX",
+			sistema: r.sistema,
 			qtdLicenca: r.qtdLicenca,
 			qtdDiaLiberacao: r.qtdDiaLiberacao,
 			status: statusIdToLabel(r.idStatus),
@@ -79,13 +115,13 @@ export async function GET() {
 	} catch (err: any) {
 		console.error("GET /api/controle-sistema erro:", err);
 		return NextResponse.json(
-			{ ok: false, error: "Falha ao consultar controle de sistema." },
+			{ ok: false, error: "Falha ao listar controle de sistema." },
 			{ status: 500 }
 		);
 	}
 }
 
-// ============= CRIAR NOVO (POST) =============
+// ============= CRIAR (POST) =============
 export async function POST(req: NextRequest) {
 	try {
 		const body = await req.json();
@@ -94,6 +130,7 @@ export async function POST(req: NextRequest) {
 		const qtdLicenca = Number(body.qtdLicenca ?? 0);
 		const qtdDiaLiberacao = Number(body.qtdDiaLiberacao ?? 0);
 		const statusLabel = (body.status ?? "").toString().trim();
+		const sistemaLabel = (body.sistema ?? "").toString().trim();
 
 		if (!clienteId) {
 			return NextResponse.json(
@@ -101,44 +138,47 @@ export async function POST(req: NextRequest) {
 				{ status: 400 }
 			);
 		}
+		if (!sistemaLabel) {
+			return NextResponse.json(
+				{ ok: false, error: "Sistema é obrigatório." },
+				{ status: 400 }
+			);
+		}
 		if (qtdLicenca < 0 || qtdDiaLiberacao < 0) {
 			return NextResponse.json(
-				{ ok: false, error: "Quantidade de licença e dias não podem ser negativos." },
+				{ ok: false, error: "Valores não podem ser negativos." },
 				{ status: 400 }
 			);
 		}
 
 		const idStatus = statusLabelToId(statusLabel);
+		const idSistema = await getOrCreateSistemaId(sistemaLabel);
 
 		const sql = `
-			INSERT INTO public.cliente_sistema
-				(id_cliente, id_sistema, quantidade_licenca, quantidade_dia_liberacao, id_status, observacao_status)
-			VALUES
-				(
-					$1,
-					(SELECT id FROM public.sistema ORDER BY id ASC LIMIT 1),
-					$2,
-					$3,
-					$4,
-					$5
-				);
+			INSERT INTO public.cliente_sistema (
+				id_cliente,
+				id_sistema,
+				quantidade_licenca,
+				quantidade_dia_liberacao,
+				id_status
+			)
+			VALUES ($1, $2, $3, $4, $5)
+			RETURNING id;
 		`;
 
-		const paramsSql = [
+		const resIns = await query<{ id: number }>(sql, [
 			clienteId,
+			idSistema,
 			qtdLicenca,
 			qtdDiaLiberacao,
 			idStatus,
-			null
-		];
+		]);
 
-		await query(sql, paramsSql);
-
-		return NextResponse.json({ ok: true }, { status: 201 });
+		return NextResponse.json({ ok: true, id: resIns.rows[0].id });
 	} catch (err: any) {
 		console.error("POST /api/controle-sistema erro:", err);
 		return NextResponse.json(
-			{ ok: false, error: "Falha ao criar registro de controle de sistema." },
+			{ ok: false, error: "Falha ao criar controle de sistema." },
 			{ status: 500 }
 		);
 	}

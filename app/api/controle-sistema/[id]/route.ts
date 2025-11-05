@@ -43,10 +43,17 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 		const qtdLicenca = Number(body.qtdLicenca ?? 0);
 		const qtdDiaLiberacao = Number(body.qtdDiaLiberacao ?? 0);
 		const statusLabel = (body.status ?? "").toString().trim();
+		const sistemaLabel = (body.sistema ?? "").toString().trim();
 
 		if (!clienteId) {
 			return NextResponse.json(
 				{ ok: false, error: "Cliente é obrigatório." },
+				{ status: 400 }
+			);
+		}
+		if (!sistemaLabel) {
+			return NextResponse.json(
+				{ ok: false, error: "Sistema é obrigatório." },
 				{ status: 400 }
 			);
 		}
@@ -59,22 +66,55 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 
 		const idStatus = statusLabelToId(statusLabel);
 
+		// 1) Tenta encontrar o sistema pelo nome
+		const sqlBuscaSistema = `
+			SELECT id
+			FROM public.sistema
+			WHERE nome ILIKE $1
+			LIMIT 1;
+		`;
+		const resSistema = await query<{ id: number }>(sqlBuscaSistema, [
+			sistemaLabel,
+		]);
+
+		let idSistema: number;
+
+		if (resSistema.rows.length > 0) {
+			// já existe na tabela sistema
+			idSistema = resSistema.rows[0].id;
+		} else {
+			// 2) Não existe: cria um novo sistema com esse nome
+			const sqlInsSistema = `
+				INSERT INTO public.sistema (nome)
+				VALUES ($1)
+				RETURNING id;
+			`;
+			const resIns = await query<{ id: number }>(sqlInsSistema, [
+				sistemaLabel,
+			]);
+
+			idSistema = resIns.rows[0].id;
+		}
+
+		// 3) Atualiza cliente_sistema com o id_sistema correto
 		const sql = `
 			UPDATE public.cliente_sistema
 			SET
-				id_cliente              = $1,
-				quantidade_licenca      = $2,
-				quantidade_dia_liberacao = $3,
-				id_status               = $4
-			WHERE id = $5;
+				id_cliente               = $1,
+				id_sistema               = $2,
+				quantidade_licenca       = $3,
+				quantidade_dia_liberacao = $4,
+				id_status                = $5
+			WHERE id = $6;
 		`;
 
 		const paramsSql = [
 			clienteId,
+			idSistema,
 			qtdLicenca,
 			qtdDiaLiberacao,
 			idStatus,
-			id
+			id,
 		];
 
 		await query(sql, paramsSql);

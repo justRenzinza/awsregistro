@@ -6,6 +6,16 @@ import { downloadCSV, toCSVControleSistema } from "../../helpers/export";
 /* ------------ tipos básicos ----------- */
 type ClienteBase = { id: number; nome: string };
 
+const sistemas = [
+	"SACEX",
+	"SAGRAM",
+	"STONE CLOUD",
+	"COFFEE IOT",
+	"AGROWEIGHT",
+	"MBLOCK",
+	"STONE BI",
+];
+
 type StatusContrato =
 	| "Regular"
 	| "Irregular (Sem Restrição)"
@@ -36,7 +46,7 @@ export default function ControleDeSistemaPage() {
 		| keyof Pick<
 				ControleSistema,
 				"sistema" | "qtdLicenca" | "qtdDiaLiberacao" | "status"
-		>
+		  >
 		| "cliente";
 	type SortDir = "asc" | "desc" | null;
 	const [sortKey, setSortKey] = useState<SortKey | null>(null);
@@ -166,10 +176,6 @@ export default function ControleDeSistemaPage() {
 
 	/* ------------------- ações ------------------- */
 	function handleAdd() {
-		if (!clientes.length) {
-			alert("Cadastre um cliente primeiro.");
-			return;
-		}
 		setEditingId(0);
 		setForm({
 			clienteId: clientes[0]?.id,
@@ -307,8 +313,7 @@ export default function ControleDeSistemaPage() {
 							<span className="text-gray-500">Licenças:</span> {r.qtdLicenca}
 						</div>
 						<div>
-							<span className="text-gray-500">Dias Lib.:</span>{" "}
-							{r.qtdDiaLiberacao}
+							<span className="text-gray-500">Dias Lib.:</span> {r.qtdDiaLiberacao}
 						</div>
 						<div className="col-span-2">
 							<span className="text-gray-500">Status:</span> {r.status}
@@ -413,7 +418,7 @@ export default function ControleDeSistemaPage() {
 				{/* área principal */}
 				<div className="flex-1">
 					{/* topo mobile */}
-					<div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 sm:hidden">
+				      	<div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 sm:hidden">
 						<button
 							className="rounded-xl border px-3 py-2 text-sm shadow transition-transform hover:scale-105"
 							onClick={() => setOpenSidebar(true)}
@@ -720,7 +725,7 @@ export default function ControleDeSistemaPage() {
 									<label className="text-sm md:col-span-2">
 										<span className="mb-1 block text-black">Sistema *</span>
 										<select
-											value={form.sistema ?? ""}
+											value={form.sistema ?? sistemas[0]}
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
@@ -729,7 +734,6 @@ export default function ControleDeSistemaPage() {
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										>
-											<option value="">Selecione um sistema</option>
 											{sistemas.map((s) => (
 												<option key={s} value={s}>
 													{s}
