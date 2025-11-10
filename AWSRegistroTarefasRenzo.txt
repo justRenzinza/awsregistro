@@ -1,0 +1,19 @@
+------- Subir no Repo da Allware
+
+0 - Passar a conectar banco
+
+1 -  Adicionar no Controle de Sistema
+Quatidade de Bancos de dados (Int)
+Quantidade de CNPJ (Int)
+QUANDO MBLOCK - IP (VARCHAR) PORTA(VARCHAR)  ---- 128.18.10.15  4050
+Observações
+
+2 -  Criar um cadastro de sistema
+SAGRAM
+SACEX
+STONE CLOUD
+COFFEE IOT
+AGROWEIGHT
+MBLOCK 
+STONE BI
+

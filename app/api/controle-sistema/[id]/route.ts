@@ -42,8 +42,13 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 		const clienteId = Number(body.clienteId ?? 0);
 		const qtdLicenca = Number(body.qtdLicenca ?? 0);
 		const qtdDiaLiberacao = Number(body.qtdDiaLiberacao ?? 0);
+		const qtdBanco = Number(body.qtdBanco ?? 0);
+		const qtdCnpj = Number(body.qtdCnpj ?? 0);
 		const statusLabel = (body.status ?? "").toString().trim();
 		const sistemaLabel = (body.sistema ?? "").toString().trim();
+		const ipMblockRaw = (body.ipMblock ?? "").toString().trim();
+		const portaMblockRaw = (body.portaMblock ?? "").toString().trim();
+		const observacao = (body.observacao ?? "").toString().trim();
 
 		if (!clienteId) {
 			return NextResponse.json(
@@ -57,9 +62,9 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 				{ status: 400 }
 			);
 		}
-		if (qtdLicenca < 0 || qtdDiaLiberacao < 0) {
+		if (qtdLicenca < 0 || qtdDiaLiberacao < 0 || qtdBanco < 0 || qtdCnpj < 0) {
 			return NextResponse.json(
-				{ ok: false, error: "Valores não podem ser negativos." },
+				{ ok: false, error: "Valores numéricos não podem ser negativos." },
 				{ status: 400 }
 			);
 		}
@@ -96,6 +101,11 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 			idSistema = resIns.rows[0].id;
 		}
 
+		// Se não for MBLOCK, limpamos IP/porta
+		const isMblock = sistemaLabel.toUpperCase() === "MBLOCK";
+		const ipMblock = isMblock && ipMblockRaw ? ipMblockRaw : null;
+		const portaMblock = isMblock && portaMblockRaw ? portaMblockRaw : null;
+
 		// 3) Atualiza cliente_sistema com o id_sistema correto
 		const sql = `
 			UPDATE public.cliente_sistema
@@ -104,8 +114,13 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 				id_sistema               = $2,
 				quantidade_licenca       = $3,
 				quantidade_dia_liberacao = $4,
-				id_status                = $5
-			WHERE id = $6;
+				id_status                = $5,
+				quantidade_banco_dados   = $6,
+				quantidade_cnpj          = $7,
+				ip_mblock                = $8,
+				porta_mblock             = $9,
+				observacao_status        = $10
+			WHERE id = $11;
 		`;
 
 		const paramsSql = [
@@ -114,6 +129,11 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 			qtdLicenca,
 			qtdDiaLiberacao,
 			idStatus,
+			qtdBanco,
+			qtdCnpj,
+			ipMblock,
+			portaMblock,
+			observacao || null,
 			id,
 		];
 

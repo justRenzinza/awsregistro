@@ -29,6 +29,11 @@ type ControleSistema = {
 	qtdLicenca: number;
 	qtdDiaLiberacao: number;
 	status: StatusContrato | string;
+	qtdBanco?: number;
+	qtdCnpj?: number;
+	ipMblock?: string | null;
+	portaMblock?: string | null;
+	observacao?: string | null;
 };
 
 export default function ControleDeSistemaPage() {
@@ -182,6 +187,11 @@ export default function ControleDeSistemaPage() {
 			sistema: sistemas[0],
 			qtdLicenca: 0,
 			qtdDiaLiberacao: 0,
+			qtdBanco: 0,
+			qtdCnpj: 0,
+			ipMblock: "",
+			portaMblock: "",
+			observacao: "",
 			status: "Regular",
 		});
 	}
@@ -190,7 +200,14 @@ export default function ControleDeSistemaPage() {
 		const r = rows.find((x) => x.id === id);
 		if (!r) return;
 		setEditingId(id);
-		setForm({ ...r });
+		setForm({
+			...r,
+			qtdBanco: r.qtdBanco ?? 0,
+			qtdCnpj: r.qtdCnpj ?? 0,
+			ipMblock: r.ipMblock ?? "",
+			portaMblock: r.portaMblock ?? "",
+			observacao: r.observacao ?? "",
+		});
 	}
 
 	async function handleDelete(id: number) {
@@ -231,12 +248,21 @@ export default function ControleDeSistemaPage() {
 			alert("Quantidade de licença e dias de liberação não podem ser negativos.");
 			return;
 		}
+		if ((form.qtdBanco ?? 0) < 0 || (form.qtdCnpj ?? 0) < 0) {
+			alert("Qtd. Bancos de Dados e Qtd. CNPJ não podem ser negativos.");
+			return;
+		}
 
 		const payload = {
 			clienteId: form.clienteId!,
 			sistema: (form.sistema ?? "").toString().trim(),
 			qtdLicenca: Number(form.qtdLicenca ?? 0),
 			qtdDiaLiberacao: Number(form.qtdDiaLiberacao ?? 0),
+			qtdBanco: Number(form.qtdBanco ?? 0),
+			qtdCnpj: Number(form.qtdCnpj ?? 0),
+			ipMblock: (form.ipMblock ?? "").toString().trim(),
+			portaMblock: (form.portaMblock ?? "").toString().trim(),
+			observacao: (form.observacao ?? "").toString().trim(),
 			status: (form.status ?? "Regular") as StatusContrato,
 		};
 
@@ -313,7 +339,8 @@ export default function ControleDeSistemaPage() {
 							<span className="text-gray-500">Licenças:</span> {r.qtdLicenca}
 						</div>
 						<div>
-							<span className="text-gray-500">Dias Lib.:</span> {r.qtdDiaLiberacao}
+							<span className="text-gray-500">Dias Lib.:</span>{" "}
+							{r.qtdDiaLiberacao}
 						</div>
 						<div className="col-span-2">
 							<span className="text-gray-500">Status:</span> {r.status}
@@ -418,7 +445,7 @@ export default function ControleDeSistemaPage() {
 				{/* área principal */}
 				<div className="flex-1">
 					{/* topo mobile */}
-				      	<div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 sm:hidden">
+					<div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 sm:hidden">
 						<button
 							className="rounded-xl border px-3 py-2 text-sm shadow transition-transform hover:scale-105"
 							onClick={() => setOpenSidebar(true)}
@@ -781,6 +808,101 @@ export default function ControleDeSistemaPage() {
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 											min={0}
+										/>
+									</label>
+
+									<label className="text-sm">
+										<span className="mb-1 block text-black">
+											Qtd. Bancos de Dados
+										</span>
+										<input
+											type="number"
+											value={form.qtdBanco ?? 0}
+											onChange={(e) =>
+												setForm((prev) => ({
+													...prev,
+													qtdBanco:
+														e.target.value === ""
+															? undefined
+															: Number(e.target.value),
+												}))
+											}
+											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											min={0}
+										/>
+									</label>
+
+									<label className="text-sm">
+										<span className="mb-1 block text-black">Qtd. CNPJ</span>
+										<input
+											type="number"
+											value={form.qtdCnpj ?? 0}
+											onChange={(e) =>
+												setForm((prev) => ({
+													...prev,
+													qtdCnpj:
+														e.target.value === ""
+															? undefined
+															: Number(e.target.value),
+												}))
+											}
+											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											min={0}
+										/>
+									</label>
+
+									{/* Campos extras só quando MBLOCK */}
+									{(form.sistema ?? "").toUpperCase() === "MBLOCK" && (
+										<>
+											<label className="text-sm">
+												<span className="mb-1 block text-black">
+													IP (MBLOCK)
+												</span>
+												<input
+													type="text"
+													value={form.ipMblock ?? ""}
+													onChange={(e) =>
+														setForm((prev) => ({
+															...prev,
+															ipMblock: e.target.value,
+														}))
+													}
+													className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+													placeholder="Ex: 192.168.0.10"
+												/>
+											</label>
+
+											<label className="text-sm">
+												<span className="mb-1 block text-black">
+													Porta (MBLOCK)
+												</span>
+												<input
+													type="text"
+													value={form.portaMblock ?? ""}
+													onChange={(e) =>
+														setForm((prev) => ({
+															...prev,
+															portaMblock: e.target.value,
+														}))
+													}
+													className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+													placeholder="Ex: 5432"
+												/>
+											</label>
+										</>
+									)}
+
+									<label className="text-sm md:col-span-2">
+										<span className="mb-1 block text-black">Observações</span>
+										<textarea
+											value={form.observacao ?? ""}
+											onChange={(e) =>
+												setForm((prev) => ({
+													...prev,
+													observacao: e.target.value,
+												}))
+											}
+											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm min-h-[80px]"
 										/>
 									</label>
 
