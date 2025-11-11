@@ -1,0 +1,14 @@
+{
+    "$schema": "https://json.schemastore.org/eslintrc",
+    "extends": "next/core-web-vitals",
+    "rules": {
+    // deixa usar "any" sem quebrar o build
+    "@typescript-eslint/no-explicit-any": "off",
+
+    // só avisa de variável não usada, não quebra
+    "@typescript-eslint/no-unused-vars": "warn",
+
+    // também deixa o React Hooks só como aviso
+    "react-hooks/exhaustive-deps": "warn"
+    }
+}
