@@ -352,6 +352,7 @@ export default function ClientesPage() {
 							<span className="text-xs text-blue-600"></span>
 						</a>
 						<a href="/controle-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">Controle de Sistema</a>
+						<a href="/cadastro-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">Cadastro de Sistema</a>
 						<a href="#" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">Controle Registro</a>
 					</nav>
 
