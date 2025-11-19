@@ -10,11 +10,12 @@ type SistemaRow = {
 export async function GET() {
 	try {
 		const result = await query<SistemaRow>(
-			"SELECT id, nome FROM cadastro_sistema ORDER BY id"
+			"SELECT id, nome FROM sistema ORDER BY id"
 		);
+
 		return NextResponse.json(result.rows);
 	} catch (error) {
-		console.error("Erro ao carregar sistemas:", error);
+		console.error("Erro ao listar sistemas:", error);
 		return NextResponse.json(
 			{ error: "Erro ao listar sistemas." },
 			{ status: 500 }
@@ -24,18 +25,25 @@ export async function GET() {
 
 export async function POST(req: Request) {
 	try {
-		const { id, nome } = await req.json();
+		const body = await req.json();
+		const nome: string | undefined = body?.nome;
 
-		if (!id || !nome) {
+		// agora só valida o nome
+		if (!nome) {
 			return NextResponse.json(
-				{ error: "ID e Nome são obrigatórios." },
+				{ error: "Nome do sistema é obrigatório." },
 				{ status: 400 }
 			);
 		}
 
+		// banco gera o ID automaticamente (SERIAL / IDENTITY)
 		const insert = await query<SistemaRow>(
-			"INSERT INTO cadastro_sistema (id, nome) VALUES ($1, $2) RETURNING id, nome",
-			[id, nome]
+			`
+			INSERT INTO sistema (nome)
+			VALUES ($1)
+			RETURNING id, nome
+			`,
+			[nome]
 		);
 
 		return NextResponse.json(insert.rows[0], { status: 201 });

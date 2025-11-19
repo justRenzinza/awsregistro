@@ -1,44 +1,79 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 
-export default function CadastroSistemaPage() {
-	/* sidebar mobile */
+type Sistema = {
+	id: number;
+	nome: string;
+};
+
+export default function CadastroVersaoSistemaPage() {
 	const [openSidebar, setOpenSidebar] = useState(false);
 
-	/* formulário */
-	const [nome, setNome] = useState("");
+	const [sistemas, setSistemas] = useState<Sistema[]>([]);
+	const [idSistema, setIdSistema] = useState("");
+	const [versao, setVersao] = useState("");
+	const [dataVersao, setDataVersao] = useState("");
+
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [success, setSuccess] = useState<string | null>(null);
+
+	// carrega sistemas para o combo
+	useEffect(() => {
+		async function loadSistemas() {
+			try {
+				const resp = await fetch("/api/cadastro-sistema", { cache: "no-store" });
+				const data = await resp.json();
+				if (Array.isArray(data)) {
+					setSistemas(data);
+				}
+			} catch (e) {
+				console.error("Erro ao carregar sistemas:", e);
+			}
+		}
+		loadSistemas();
+	}, []);
+
+	function handleNovo() {
+		setIdSistema("");
+		setVersao("");
+		setDataVersao("");
+		setError(null);
+		setSuccess(null);
+	}
 
 	async function handleSubmit(e: FormEvent) {
 		e.preventDefault();
 		setError(null);
 		setSuccess(null);
 
-		if (!nome.trim()) {
-			setError("Preencha o Nome do sistema.");
+		if (!idSistema || !versao.trim() || !dataVersao) {
+			setError("Selecione o sistema, preencha a versão e a data.");
 			return;
 		}
 
 		try {
 			setLoading(true);
-			const resp = await fetch("/api/cadastro-sistema", {
+			const resp = await fetch("/api/versao-sistema", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ nome }),
+				body: JSON.stringify({
+					idSistema: Number(idSistema),
+					versao,
+					dataVersao,
+				}),
 			});
 
 			const data = await resp.json();
 
-			if (!resp.ok) {
-				setError(data?.error || "Erro ao cadastrar sistema.");
+			if (!resp.ok || !data.ok) {
+				setError(data?.error || "Erro ao cadastrar versão.");
 				return;
 			}
 
-			setSuccess(`Sistema "${data.nome}" cadastrado com sucesso!`);
-			setNome("");
+			setSuccess("Versão cadastrada com sucesso!");
+			handleNovo();
 		} catch (e) {
 			console.error(e);
 			setError("Erro ao conectar com o servidor.");
@@ -47,23 +82,13 @@ export default function CadastroSistemaPage() {
 		}
 	}
 
-	function handleNovo() {
-		setNome("");
-		setError(null);
-		setSuccess(null);
-	}
-
 	return (
 		<div className="min-h-screen bg-gray-50">
 			<div className="flex">
-				{/* sidebar (desktop) */}
+				{/* sidebar desktop */}
 				<aside className="hidden sm:flex sm:flex-col sm:w-64 sm:min-h-screen sm:sticky sm:top-0 sm:bg-white sm:shadow sm:border-r">
 					<div className="bg-gradient-to-r from-blue-700 to-blue-500 p-4 text-white">
-						<div className="flex items-center gap-3">
-							<div className="font-semibold flex-1 text-center">
-								AWSRegistro | Painel
-							</div>
-						</div>
+						<div className="font-semibold text-center">AWSRegistro | Painel</div>
 					</div>
 
 					<nav className="flex-1 p-3">
@@ -73,10 +98,10 @@ export default function CadastroSistemaPage() {
 						<a href="/controle-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
 							Controle de Sistema
 						</a>
-						<a href="/cadastro-sistema" className="mb-1 flex font-semibold items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-gray-900 bg-blue-50 border border-blue-200">
-							<span>Cadastro de Sistema</span>
+						<a href="/cadastro-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
+							Cadastro de Sistema
 						</a>
-						<a href="/versao-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
+						<a href="/versao-sistema" className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-900 bg-blue-50 border border-blue-200">
 							Versão dos Sistemas
 						</a>
 						<a href="#" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
@@ -110,11 +135,11 @@ export default function CadastroSistemaPage() {
 								<a href="/controle-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
 									Controle de Sistema
 								</a>
-								<a href="/cadastro-sistema" className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-900 bg-blue-50 border border-blue-200">
+								<a href="/cadastro-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
 									Cadastro de Sistema
 								</a>
 								<a href="/versao-sistema" className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-900 bg-blue-50 border border-blue-200">
-									Versão dos Sistemas
+									Versionamento dos Sistemas
 								</a>
 								<a href="#" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
 									Controle Registro
@@ -131,23 +156,23 @@ export default function CadastroSistemaPage() {
 						<button
 							className="rounded-xl border px-3 py-2 text-sm shadow transition-transform hover:scale-105"
 							onClick={() => setOpenSidebar(true)}
+							aria-label="Abrir menu"
 						>
 							☰
 						</button>
 						<div className="ml-1 flex-1 text-center font-semibold text-white">
-							AWSRegistro | Cadastro de Sistema
+							AWSRegistro | Versões por Sistema
 						</div>
 					</div>
 
 					<main className="mx-auto max-w-7xl p-4 md:p-6">
-						{/* CARD DE CADASTRO — sem barra de busca */}
 						<div className="rounded-xl bg-white shadow overflow-hidden">
 							<div className="border-b px-4 py-3 sm:px-6">
 								<h2 className="text-base sm:text-lg font-semibold text-gray-800">
-									Cadastro de Sistema
+									Cadastro de Versão por Sistema
 								</h2>
 								<p className="text-sm text-gray-500">
-									Informe o nome do sistema para registrá-lo.
+									Selecione o sistema e informe a versão e a data.
 								</p>
 							</div>
 
@@ -164,21 +189,51 @@ export default function CadastroSistemaPage() {
 									</div>
 								)}
 
-								<form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
-									<div className="md:col-span-2">
+								<form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-3">
+									<div>
 										<label className="mb-1 block text-xs font-bold text-slate-600">
-											Nome do Sistema
+											Sistema
+										</label>
+										<select
+											value={idSistema}
+											onChange={(e) => setIdSistema(e.target.value)}
+											className="w-full rounded-md border text-black border-slate-300 px-2 py-2 text-sm outline-none focus:border-blue-500 bg-white"
+										>
+											<option value="">Selecione...</option>
+											{sistemas.map((s) => (
+												<option key={s.id} value={s.id}>
+													{s.nome}
+												</option>
+											))}
+										</select>
+									</div>
+
+									<div>
+										<label className="mb-1 block text-xs font-bold text-slate-600">
+											Versão
 										</label>
 										<input
 											type="text"
-											value={nome}
-											onChange={(e) => setNome(e.target.value)}
+											value={versao}
+											onChange={(e) => setVersao(e.target.value)}
 											className="w-full rounded-md border text-black border-slate-300 px-2 py-2 text-sm outline-none focus:border-blue-500"
-											placeholder="Ex.: SACEX, SAGRAM, MBLOCK..."
+											placeholder="Ex.: 2025.1.15.29"
 										/>
 									</div>
 
-									<div className="md:col-span-2 flex justify-end gap-2">
+									<div>
+										<label className="mb-1 block text-xs font-bold text-slate-600">
+											Data da Versão
+										</label>
+										<input
+											type="date"
+											value={dataVersao}
+											onChange={(e) => setDataVersao(e.target.value)}
+											className="w-full rounded-md border text-black border-slate-300 px-2 py-2 text-sm outline-none focus:border-blue-500"
+										/>
+									</div>
+
+									<div className="md:col-span-3 flex justify-end gap-2 mt-2">
 										<button
 											type="button"
 											onClick={handleNovo}
@@ -191,7 +246,7 @@ export default function CadastroSistemaPage() {
 											disabled={loading}
 											className="rounded-xl bg-green-500 px-4 py-2 text-sm font-medium text-white hover:bg-green-600 transform transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-70"
 										>
-											{loading ? "Salvando..." : "Salvar Sistema"}
+											{loading ? "Salvando..." : "Salvar Versão"}
 										</button>
 									</div>
 								</form>

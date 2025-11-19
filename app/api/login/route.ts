@@ -43,14 +43,6 @@ export async function POST(req: Request) {
 
 		const user = result.rows[0];
 
-		// Se quiser travar por status, descomenta isso:
-		// if (user.id_status !== 2) {
-		// 	return NextResponse.json(
-		// 		{ error: "Usuário inativo ou bloqueado." },
-		// 		{ status: 403 }
-		// 	);
-		// }
-
 		// Comparação de senha (texto puro)
 		if (senha !== user.senha) {
 			return NextResponse.json(

@@ -388,6 +388,9 @@ export default function ControleDeSistemaPage() {
 						>
 							Cadastro de Sistema
 						</a>
+						<a href="/versao-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
+							Versão dos Sistemas
+						</a>
 						<a
 							href="#"
 							className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
