@@ -2,19 +2,15 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { downloadCSV, toCSVControleSistema } from "../../helpers/export";
+import Sidebar from "@/app/components/Sidebar";
 
 /* ------------ tipos básicos ----------- */
 type ClienteBase = { id: number; nome: string };
 
-const sistemas = [
-	"SACEX",
-	"SAGRAM",
-	"STONE CLOUD",
-	"COFFEE IOT",
-	"AGROWEIGHT",
-	"MBLOCK",
-	"STONE BI",
-];
+type Sistema = {
+	id: number;
+	nome: string;
+};
 
 type StatusContrato =
 	| "Regular"
@@ -46,6 +42,9 @@ export default function ControleDeSistemaPage() {
 	/* clientes (para select / nome do cliente) */
 	const [clientes, setClientes] = useState<ClienteBase[]>([]);
 
+	/* sistemas (AGORA VINDO DO BANCO) */
+	const [sistemas, setSistemas] = useState<Sistema[]>([]);
+
 	/* ordenação */
 	type SortKey =
 		| keyof Pick<
@@ -61,7 +60,7 @@ export default function ControleDeSistemaPage() {
 	const [editingId, setEditingId] = useState<number | null>(null); // 0 = novo
 	const [form, setForm] = useState<Partial<ControleSistema>>({});
 
-	/* sidebar mobile */
+	/* sidebar mobile (drawer desta página) */
 	const [openSidebar, setOpenSidebar] = useState(false);
 
 	/* helper nome do cliente (usa os clientes do banco) */
@@ -98,6 +97,23 @@ export default function ControleDeSistemaPage() {
 		}
 	}
 
+	async function loadSistemas() {
+		try {
+			const resp = await fetch("/api/cadastro-sistema", { cache: "no-store" });
+			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+			const json = await resp.json();
+			// nossa rota de sistemas retorna um array simples: [{ id, nome }]
+			if (Array.isArray(json)) {
+				setSistemas(json as Sistema[]);
+			} else if (json?.data && Array.isArray(json.data)) {
+				// fallback caso um dia mude pra { ok, data }
+				setSistemas(json.data as Sistema[]);
+			}
+		} catch (e) {
+			console.error("Falha ao carregar sistemas:", e);
+		}
+	}
+
 	async function loadRows() {
 		try {
 			const resp = await fetch("/api/controle-sistema", {
@@ -118,6 +134,7 @@ export default function ControleDeSistemaPage() {
 
 	useEffect(() => {
 		loadClientes();
+		loadSistemas();
 		loadRows();
 	}, []);
 
@@ -181,10 +198,13 @@ export default function ControleDeSistemaPage() {
 
 	/* ------------------- ações ------------------- */
 	function handleAdd() {
+		const primeiroClienteId = clientes[0]?.id;
+		const primeiroSistemaNome = sistemas[0]?.nome ?? "";
+
 		setEditingId(0);
 		setForm({
-			clienteId: clientes[0]?.id,
-			sistema: sistemas[0],
+			clienteId: primeiroClienteId,
+			sistema: primeiroSistemaNome,
 			qtdLicenca: 0,
 			qtdDiaLiberacao: 0,
 			qtdBanco: 0,
@@ -359,58 +379,10 @@ export default function ControleDeSistemaPage() {
 	return (
 		<div className="min-h-screen bg-gray-50">
 			<div className="flex">
-				{/* sidebar (desktop) */}
-				<aside className="hidden sm:flex sm:flex-col sm:w-64 sm:min-h-screen sm:sticky sm:top-0 sm:bg-white sm:shadow sm:border-r">
-					<div className="bg-gradient-to-r from-blue-700 to-blue-500 p-4 text-white">
-						<div className="flex items-center gap-3">
-							<div className="font-semibold flex-1 text-center">
-								AWSRegistro | Painel
-							</div>
-						</div>
-					</div>
+				{/* sidebar desktop reutilizável */}
+				<Sidebar active="controle-sistema" />
 
-					<nav className="flex-1 p-3">
-						<a
-							href="/clientes"
-							className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-						>
-							Clientes
-						</a>
-						<a
-							href="/controle-sistema"
-							className="mb-1 flex font-semibold items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-gray-900 bg-blue-50 border border-blue-200"
-						>
-							<span>Controle de Sistema</span>
-						</a>
-						<a
-							href="/cadastro-sistema"
-							className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-						>
-							Cadastro de Sistema
-						</a>
-						<a href="/versao-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-							Versão dos Sistemas
-						</a>
-						<a
-							href="#"
-							className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-						>
-							Controle Registro
-						</a>
-					</nav>
-
-					<div className="p-3 text-sm text-gray-600">
-						<div className="rounded-lg border p-3">
-							<div className="mb-1 font-medium text-gray-800">Usuário</div>
-							<div className="flex items-center justify-between">
-								<span className="text-gray-700">AWS</span>
-								<span className="text-gray-400">▾</span>
-							</div>
-						</div>
-					</div>
-				</aside>
-
-				{/* sidebar mobile (drawer) */}
+				{/* sidebar mobile (drawer da página) */}
 				{openSidebar && (
 					<div
 						className="fixed inset-0 z-40 sm:hidden"
@@ -441,6 +413,24 @@ export default function ControleDeSistemaPage() {
 									<span>Controle de Sistema</span>
 								</a>
 								<a
+									href="/cadastro-sistema"
+									className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+								>
+									Cadastro de Sistema
+								</a>
+								<a
+									href="/versao-sistema"
+									className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+								>
+									Versão dos Sistemas
+								</a>
+								<a
+									href="/clientes-versao"
+									className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
+								>
+									Clientes por Versão
+								</a>
+								<a
 									href="#"
 									className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
 								>
@@ -463,7 +453,7 @@ export default function ControleDeSistemaPage() {
 							☰
 						</button>
 						<div className="ml-1 flex-1 text-center font-semibold text-white">
-							AWSRegistro | Painel
+							AWSRegistro | Controle de Sistema
 						</div>
 					</div>
 
@@ -727,7 +717,7 @@ export default function ControleDeSistemaPage() {
 
 					{/* wrapper full-screen no mobile; centralizado no desktop */}
 					<div className="absolute inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-3">
-						{/* card: ocupa toda a tela no mobile e rola internamente */}
+						{/* card */}
 						<div className="h-full w-full sm:h-auto sm:w-full sm:max-w-2xl rounded-none sm:rounded-xl bg-white shadow-lg overflow-y-auto">
 							<h2 className="sticky top-0 z-10 px-6 py-4 text-xl font-semibold text-blue-700 bg-white border-b">
 								{editingId === 0 ? "Adicionar Registro" : "Editar Registro"}
@@ -761,7 +751,7 @@ export default function ControleDeSistemaPage() {
 									<label className="text-sm md:col-span-2">
 										<span className="mb-1 block text-black">Sistema *</span>
 										<select
-											value={form.sistema ?? sistemas[0]}
+											value={form.sistema ?? ""}
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
@@ -770,9 +760,10 @@ export default function ControleDeSistemaPage() {
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										>
+											<option value="">Selecione um sistema</option>
 											{sistemas.map((s) => (
-												<option key={s} value={s}>
-													{s}
+												<option key={s.id} value={s.nome}>
+													{s.nome}
 												</option>
 											))}
 										</select>

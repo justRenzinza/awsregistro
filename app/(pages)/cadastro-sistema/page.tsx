@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, FormEvent } from "react";
+import Sidebar from "@/app/components/Sidebar";
 
 export default function CadastroSistemaPage() {
 	/* sidebar mobile */
@@ -56,71 +57,17 @@ export default function CadastroSistemaPage() {
 	return (
 		<div className="min-h-screen bg-gray-50">
 			<div className="flex">
-				{/* sidebar (desktop) */}
-				<aside className="hidden sm:flex sm:flex-col sm:w-64 sm:min-h-screen sm:sticky sm:top-0 sm:bg-white sm:shadow sm:border-r">
-					<div className="bg-gradient-to-r from-blue-700 to-blue-500 p-4 text-white">
-						<div className="flex items-center gap-3">
-							<div className="font-semibold flex-1 text-center">
-								AWSRegistro | Painel
-							</div>
-						</div>
-					</div>
+				{/* sidebar reutilizável (desktop) */}
+				<Sidebar active="cadastro-sistema" />
 
-					<nav className="flex-1 p-3">
-						<a href="/clientes" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-							Clientes
-						</a>
-						<a href="/controle-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-							Controle de Sistema
-						</a>
-						<a href="/cadastro-sistema" className="mb-1 flex font-semibold items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-gray-900 bg-blue-50 border border-blue-200">
-							<span>Cadastro de Sistema</span>
-						</a>
-						<a href="/versao-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-							Versão dos Sistemas
-						</a>
-						<a href="#" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-							Controle Registro
-						</a>
-					</nav>
-
-					<div className="p-3 text-sm text-gray-600">
-						<div className="rounded-lg border p-3">
-							<div className="mb-1 font-medium text-gray-800">Usuário</div>
-							<div className="flex items-center justify-between">
-								<span className="text-gray-700">AWS</span>
-								<span className="text-gray-400">▾</span>
-							</div>
-						</div>
-					</div>
-				</aside>
-
-				{/* sidebar mobile */}
+				{/* overlay do menu mobile (igual clientes/page.tsx) */}
 				{openSidebar && (
-					<div className="fixed inset-0 z-40 sm:hidden" aria-hidden="true" onClick={() => setOpenSidebar(false)}>
+					<div
+						className="fixed inset-0 z-40 sm:hidden"
+						aria-hidden="true"
+						onClick={() => setOpenSidebar(false)}
+					>
 						<div className="absolute inset-0 bg-black/40" />
-						<div className="absolute left-0 top-0 h-full w-64 bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
-							<div className="bg-gradient-to-r from-blue-700 to-blue-500 p-4 text-white">
-								<div className="font-semibold text-center">AWSRegistro | Painel</div>
-							</div>
-							<nav className="p-3">
-								<a href="/clientes" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-									Clientes
-								</a>
-								<a href="/controle-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-									Controle de Sistema
-								</a>
-								<a href="/cadastro-sistema" className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-900 bg-blue-50 border border-blue-200">
-									Cadastro de Sistema
-								</a>
-								<a href="/versao-sistema" className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-900 bg-blue-50 border border-blue-200">
-									Versão dos Sistemas
-								</a>
-								<a href="#" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-									Controle Registro
-								</a>
-							</nav>
-						</div>
 					</div>
 				)}
 
@@ -147,7 +94,9 @@ export default function CadastroSistemaPage() {
 									Cadastro de Sistema
 								</h2>
 								<p className="text-sm text-gray-500">
-									Informe o nome do sistema para registrá-lo.
+									Informe o nome do sistema para registrá-lo. Não é necessário
+									informar o ID do sistema, pois o banco irá fazer isso
+									automaticamente.
 								</p>
 							</div>
 
@@ -164,7 +113,10 @@ export default function CadastroSistemaPage() {
 									</div>
 								)}
 
-								<form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+								<form
+									onSubmit={handleSubmit}
+									className="grid grid-cols-1 gap-4 md:grid-cols-2"
+								>
 									<div className="md:col-span-2">
 										<label className="mb-1 block text-xs font-bold text-slate-600">
 											Nome do Sistema

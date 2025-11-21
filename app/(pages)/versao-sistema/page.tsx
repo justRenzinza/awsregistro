@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, FormEvent } from "react";
+import Sidebar from "@/app/components/Sidebar";
 
 type Sistema = {
 	id: number;
@@ -85,78 +86,29 @@ export default function CadastroVersaoSistemaPage() {
 	return (
 		<div className="min-h-screen bg-gray-50">
 			<div className="flex">
-				{/* sidebar desktop */}
-				<aside className="hidden sm:flex sm:flex-col sm:w-64 sm:min-h-screen sm:sticky sm:top-0 sm:bg-white sm:shadow sm:border-r">
-					<div className="bg-gradient-to-r from-blue-700 to-blue-500 p-4 text-white">
-						<div className="font-semibold text-center">AWSRegistro | Painel</div>
-					</div>
 
-					<nav className="flex-1 p-3">
-						<a href="/clientes" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-							Clientes
-						</a>
-						<a href="/controle-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-							Controle de Sistema
-						</a>
-						<a href="/cadastro-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-							Cadastro de Sistema
-						</a>
-						<a href="/versao-sistema" className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-900 bg-blue-50 border border-blue-200">
-							Versão dos Sistemas
-						</a>
-						<a href="#" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-							Controle Registro
-						</a>
-					</nav>
+				{/* Sidebar reaproveitável */}
+				<Sidebar active="versao-sistema" />
 
-					<div className="p-3 text-sm text-gray-600">
-						<div className="rounded-lg border p-3">
-							<div className="mb-1 font-medium text-gray-800">Usuário</div>
-							<div className="flex items-center justify-between">
-								<span className="text-gray-700">AWS</span>
-								<span className="text-gray-400">▾</span>
-							</div>
-						</div>
-					</div>
-				</aside>
-
-				{/* sidebar mobile */}
+				{/* overlay do menu mobile */}
 				{openSidebar && (
-					<div className="fixed inset-0 z-40 sm:hidden" aria-hidden="true" onClick={() => setOpenSidebar(false)}>
+					<div
+						className="fixed inset-0 z-40 sm:hidden"
+						aria-hidden="true"
+						onClick={() => setOpenSidebar(false)}
+					>
 						<div className="absolute inset-0 bg-black/40" />
-						<div className="absolute left-0 top-0 h-full w-64 bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
-							<div className="bg-gradient-to-r from-blue-700 to-blue-500 p-4 text-white">
-								<div className="font-semibold text-center">AWSRegistro | Painel</div>
-							</div>
-							<nav className="p-3">
-								<a href="/clientes" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-									Clientes
-								</a>
-								<a href="/controle-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-									Controle de Sistema
-								</a>
-								<a href="/cadastro-sistema" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-									Cadastro de Sistema
-								</a>
-								<a href="/versao-sistema" className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-900 bg-blue-50 border border-blue-200">
-									Versionamento dos Sistemas
-								</a>
-								<a href="#" className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100">
-									Controle Registro
-								</a>
-							</nav>
-						</div>
 					</div>
 				)}
 
 				{/* área principal */}
 				<div className="flex-1">
+
 					{/* topo mobile */}
 					<div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 sm:hidden">
 						<button
 							className="rounded-xl border px-3 py-2 text-sm shadow transition-transform hover:scale-105"
 							onClick={() => setOpenSidebar(true)}
-							aria-label="Abrir menu"
 						>
 							☰
 						</button>
