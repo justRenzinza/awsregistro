@@ -7,19 +7,22 @@ type SidebarKey =
 	| "cadastro-sistema"
 	| "versao-sistema"
 	| "clientes-versao"
-	| "controle-registro";
+	| "controle-registro"
+	| "atualizar-clientes";
 
 type SidebarProps = {
 	active: SidebarKey;
 };
 
 const items: { key: SidebarKey; label: string; href: string }[] = [
-	{ key: "clientes", label: "Clientes", href: "/clientes" },
-	{ key: "controle-sistema", label: "Controle de Sistema", href: "/controle-sistema" },
-	{ key: "cadastro-sistema", label: "Cadastro de Sistema", href: "/cadastro-sistema" },
-	{ key: "versao-sistema", label: "Versão dos Sistemas", href: "/versao-sistema" },
-	{ key: "clientes-versao", label: "Clientes por Versão", href: "/clientes-versao" },
-	{ key: "controle-registro", label: "Controle Registro", href: "#" },
+	{ key: "clientes", label: "👥 Clientes", href: "/clientes" },
+	{ key: "controle-sistema", label: "🧩 Controle de Sistema", href: "/controle-sistema" },
+	{ key: "cadastro-sistema", label: "⚙️ Cadastro de Sistema", href: "/cadastro-sistema" },
+	{ key: "versao-sistema", label: "🔄 Versão dos Sistemas", href: "/versao-sistema" },
+	{ key: "clientes-versao", label: "📊 Clientes por Versão", href: "/clientes-versao" },
+	{ key: "controle-registro", label: "📜 Controle Registro", href: "#" },
+	{ key: "atualizar-clientes", label: "Atualizar Clientes", href: "/atualizar-clientes" },
+
 ];
 
 export default function Sidebar({ active }: SidebarProps) {
