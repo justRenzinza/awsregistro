@@ -30,7 +30,7 @@ const items: { key: SidebarKey; label: string; href: string }[] = [
 	},
 	{
 		key: "versao-sistema",
-		label: "🗂️ Versão dos Sistema",
+		label: "🗂️ Versão dos Sistemas",
 		href: "/versao-sistema",
 	},
 	{
@@ -38,7 +38,9 @@ const items: { key: SidebarKey; label: string; href: string }[] = [
 		label: "📊 Clientes por Versão",
 		href: "/clientes-versao",
 	},
-	{ key: "controle-registro", label: "📜 Controle Registro", href: "#" },
+	{ 	key: "controle-registro", 
+		label: "📜 Controle de Registro", 
+		href: "#" },
 	{
 		key: "atualizar-clientes",
 		label: "🔁 Atualizar Clientes",
