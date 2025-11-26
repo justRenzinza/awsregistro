@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-//search generico pra funcionar tanto no cliente, tanto no controle-sistema
+//search generico pra funcionar no site todo
 function toStr(v: unknown): string {
 	return String(v ?? "").trim().toLowerCase();
 }

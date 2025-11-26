@@ -39,10 +39,10 @@ export default function ControleDeSistemaPage() {
 	const [pageSize] = useState(10);
 	const [rows, setRows] = useState<ControleSistema[]>([]);
 
-	/* clientes (para select / nome do cliente) */
+	/* clientes */
 	const [clientes, setClientes] = useState<ClienteBase[]>([]);
 
-	/* sistemas (AGORA VINDO DO BANCO) */
+	/* sistemas (do banco) */
 	const [sistemas, setSistemas] = useState<Sistema[]>([]);
 
 	/* ordenação */
@@ -57,60 +57,51 @@ export default function ControleDeSistemaPage() {
 	const [sortDir, setSortDir] = useState<SortDir>(null);
 
 	/* popup */
-	const [editingId, setEditingId] = useState<number | null>(null); // 0 = novo
+	const [editingId, setEditingId] = useState<number | null>(null);
 	const [form, setForm] = useState<Partial<ControleSistema>>({});
 
-	/* sidebar mobile (drawer desta página) */
-	const [openSidebar, setOpenSidebar] = useState(false);
-
-	/* helper nome do cliente (usa os clientes do banco) */
+	/* helper nome do cliente */
 	const nomeCliente = (id: number) =>
 		clientes.find((c) => c.id === id)?.nome ?? "—";
 
-	/* trava/destrava scroll do fundo quando modal abre/fecha */
+	/* trava scroll quando modal abre */
 	useEffect(() => {
-		if (editingId !== null) {
-			document.body.style.overflow = "hidden";
-		} else {
-			document.body.style.overflow = "";
-		}
+		document.body.style.overflow = editingId !== null ? "hidden" : "";
 		return () => {
 			document.body.style.overflow = "";
 		};
 	}, [editingId]);
 
-	/* ====== carregar dados do banco ====== */
+	/* carregar dados */
 	async function loadClientes() {
 		try {
 			const resp = await fetch("/api/clientes", { cache: "no-store" });
-			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 			const json = await resp.json();
+
 			if (json?.ok && Array.isArray(json.data)) {
-				const lista: ClienteBase[] = json.data.map((c: any) => ({
-					id: c.id,
-					nome: c.razaoSocial,
-				}));
-				setClientes(lista);
+				setClientes(
+					json.data.map((c: any) => ({
+						id: c.id,
+						nome: c.razaoSocial,
+					}))
+				);
 			}
 		} catch (e) {
-			console.error("Falha ao carregar clientes base:", e);
+			console.error("Erro ao carregar clientes:", e);
 		}
 	}
 
 	async function loadSistemas() {
 		try {
-			const resp = await fetch("/api/cadastro-sistema", { cache: "no-store" });
-			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+			const resp = await fetch("/api/cadastro-sistema", {
+				cache: "no-store",
+			});
 			const json = await resp.json();
-			// nossa rota de sistemas retorna um array simples: [{ id, nome }]
-			if (Array.isArray(json)) {
-				setSistemas(json as Sistema[]);
-			} else if (json?.data && Array.isArray(json.data)) {
-				// fallback caso um dia mude pra { ok, data }
-				setSistemas(json.data as Sistema[]);
-			}
+
+			if (Array.isArray(json)) setSistemas(json);
+			else if (json?.data) setSistemas(json.data);
 		} catch (e) {
-			console.error("Falha ao carregar sistemas:", e);
+			console.error("Erro ao carregar sistemas:", e);
 		}
 	}
 
@@ -119,15 +110,13 @@ export default function ControleDeSistemaPage() {
 			const resp = await fetch("/api/controle-sistema", {
 				cache: "no-store",
 			});
-			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 			const json = await resp.json();
+
 			if (json?.ok && Array.isArray(json.data)) {
-				setRows(json.data as ControleSistema[]);
-			} else {
-				console.warn("Resposta inesperada de /api/controle-sistema:", json);
+				setRows(json.data);
 			}
 		} catch (e) {
-			console.error("Falha ao carregar controle-sistema:", e);
+			console.error("Erro ao carregar controle-sistema:", e);
 			alert("Não foi possível carregar o Controle de Sistema.");
 		}
 	}
@@ -138,6 +127,7 @@ export default function ControleDeSistemaPage() {
 		loadRows();
 	}, []);
 
+	/* ordenação */
 	function toggleSort(key: SortKey) {
 		if (sortKey !== key) {
 			setSortKey(key);
@@ -151,8 +141,10 @@ export default function ControleDeSistemaPage() {
 		} else setSortDir("asc");
 	}
 
+	/* filtragem + ordenação */
 	const filtered = useMemo(() => {
-		const q = query.trim().toLowerCase();
+		const q = query.toLowerCase();
+
 		let data = rows.filter((r) =>
 			[
 				nomeCliente(r.clienteId),
@@ -175,9 +167,9 @@ export default function ControleDeSistemaPage() {
 					va = nomeCliente(a.clienteId).toLowerCase();
 					vb = nomeCliente(b.clienteId).toLowerCase();
 				} else {
-					const key = sortKey as Exclude<SortKey, "cliente">;
-					va = String(a[key] ?? "").toLowerCase();
-					vb = String(b[key] ?? "").toLowerCase();
+					const k = sortKey as Exclude<SortKey, "cliente">;
+					va = String(a[k] ?? "").toLowerCase();
+					vb = String(b[k] ?? "").toLowerCase();
 				}
 
 				if (va < vb) return sortDir === "asc" ? -1 : 1;
@@ -185,26 +177,30 @@ export default function ControleDeSistemaPage() {
 				return 0;
 			});
 		}
+
 		return data;
 	}, [rows, query, sortKey, sortDir, clientes]);
 
-	const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+	const totalPages = Math.max(
+		1,
+		Math.ceil(filtered.length / pageSize)
+	);
 	const pageData = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-	/* mantém a página válida quando o filtro muda */
-	useEffect(() => {
-		setPage((p) => Math.min(p, totalPages));
-	}, [totalPages]);
+	useEffect(
+		() => setPage((p) => Math.min(p, totalPages)),
+		[totalPages]
+	);
 
-	/* ------------------- ações ------------------- */
+	/* ações */
 	function handleAdd() {
-		const primeiroClienteId = clientes[0]?.id;
-		const primeiroSistemaNome = sistemas[0]?.nome ?? "";
+		const clienteId = clientes[0]?.id;
+		const sistemaNome = sistemas[0]?.nome ?? "";
 
 		setEditingId(0);
 		setForm({
-			clienteId: primeiroClienteId,
-			sistema: primeiroSistemaNome,
+			clienteId,
+			sistema: sistemaNome,
 			qtdLicenca: 0,
 			qtdDiaLiberacao: 0,
 			qtdBanco: 0,
@@ -219,6 +215,7 @@ export default function ControleDeSistemaPage() {
 	function handleEdit(id: number) {
 		const r = rows.find((x) => x.id === id);
 		if (!r) return;
+
 		setEditingId(id);
 		setForm({
 			...r,
@@ -232,9 +229,10 @@ export default function ControleDeSistemaPage() {
 
 	async function handleDelete(id: number) {
 		const alvo = rows.find((r) => r.id === id);
+
 		if (
 			!window.confirm(
-				`Tem certeza que deseja excluir o registro de "${nomeCliente(
+				`Excluir registro do cliente "${nomeCliente(
 					alvo?.clienteId ?? 0
 				)}"?`
 			)
@@ -245,11 +243,10 @@ export default function ControleDeSistemaPage() {
 			const resp = await fetch(`/api/controle-sistema/${id}`, {
 				method: "DELETE",
 			});
-			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+			if (!resp.ok) throw new Error();
 			await loadRows();
-		} catch (e) {
-			console.error("Falha ao excluir controle-sistema:", e);
-			alert("Não foi possível excluir o registro.");
+		} catch {
+			alert("Erro ao excluir registro.");
 		}
 	}
 
@@ -259,111 +256,100 @@ export default function ControleDeSistemaPage() {
 	}
 
 	async function handleSave() {
-		/* validação simples */
-		if (!form.clienteId || (form.sistema ?? "").trim() === "") {
+		if (!form.clienteId || !form.sistema?.trim()) {
 			alert("Cliente e Sistema são obrigatórios.");
-			return;
-		}
-		if ((form.qtdLicenca ?? 0) < 0 || (form.qtdDiaLiberacao ?? 0) < 0) {
-			alert("Quantidade de licença e dias de liberação não podem ser negativos.");
-			return;
-		}
-		if ((form.qtdBanco ?? 0) < 0 || (form.qtdCnpj ?? 0) < 0) {
-			alert("Qtd. Bancos de Dados e Qtd. CNPJ não podem ser negativos.");
 			return;
 		}
 
 		const payload = {
 			clienteId: form.clienteId!,
-			sistema: (form.sistema ?? "").toString().trim(),
+			sistema: form.sistema!,
 			qtdLicenca: Number(form.qtdLicenca ?? 0),
 			qtdDiaLiberacao: Number(form.qtdDiaLiberacao ?? 0),
 			qtdBanco: Number(form.qtdBanco ?? 0),
 			qtdCnpj: Number(form.qtdCnpj ?? 0),
-			ipMblock: (form.ipMblock ?? "").toString().trim(),
-			portaMblock: (form.portaMblock ?? "").toString().trim(),
-			observacao: (form.observacao ?? "").toString().trim(),
+			ipMblock: form.ipMblock ?? "",
+			portaMblock: form.portaMblock ?? "",
+			observacao: form.observacao ?? "",
 			status: (form.status ?? "Regular") as StatusContrato,
 		};
 
 		try {
 			if (editingId === 0) {
-				const resp = await fetch("/api/controle-sistema", {
+				await fetch("/api/controle-sistema", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
-				if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 			} else {
-				const resp = await fetch(`/api/controle-sistema/${editingId}`, {
+				await fetch(`/api/controle-sistema/${editingId}`, {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
-				if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 			}
 
 			setEditingId(null);
 			setForm({});
 			await loadRows();
-		} catch (e) {
-			console.error("Falha ao salvar controle-sistema:", e);
-			alert("Não foi possível salvar o registro.");
+		} catch {
+			alert("Erro ao salvar registro.");
 		}
 	}
 
 	function handleExport() {
 		const csv = toCSVControleSistema(filtered, nomeCliente);
-		const nome = `controle_sistema_${new Date()
-			.toISOString()
-			.slice(0, 10)}.csv`;
-		downloadCSV(csv, nome);
+		downloadCSV(
+			csv,
+			`controle_sistema_${new Date().toISOString().slice(0, 10)}.csv`
+		);
 	}
 
-	/* ====== LISTA MOBILE ====== */
+	/* LISTA MOBILE */
 	const MobileList = () => (
 		<ul className="sm:hidden space-y-3">
 			{pageData.map((r) => (
-				<li key={r.id} className="rounded-xl border bg-white p-4 shadow">
-					{/* header com cliente + ações à direita */}
+				<li
+					key={r.id}
+					className="rounded-xl border bg-white p-4 shadow"
+				>
 					<div className="flex items-start gap-3">
-						<div className="min-w-0 flex-1">
+						<div className="flex-1 min-w-0">
 							<div className="font-medium text-gray-900 break-words">
 								{nomeCliente(r.clienteId)}
 							</div>
-							<div className="text-sm text-gray-500">{r.sistema}</div>
+							<div className="text-sm text-gray-500">
+								{r.sistema}
+							</div>
 						</div>
-						<div className="flex items-start gap-1">
+						<div className="flex gap-1">
 							<button
 								onClick={() => handleEdit(r.id)}
-								className="inline-flex items-center justify-center rounded-xl bg-yellow-400 w-7 h-7 text-white font-semibold hover:bg-yellow-500 transition-transform transform hover:scale-110"
-								aria-label={`Editar ${nomeCliente(r.clienteId)}`}
-								title="Editar"
+								className="w-7 h-7 rounded-xl bg-yellow-400 text-white hover:bg-yellow-500 transition-transform transform hover:scale-110"
 							>
 								✎
 							</button>
 							<button
 								onClick={() => handleDelete(r.id)}
-								className="inline-flex items-center justify-center rounded-xl bg-red-500 w-7 h-7 text-white font-semibold hover:bg-red-600 transition-transform transform hover:scale-110"
-								aria-label={`Excluir ${nomeCliente(r.clienteId)}`}
-								title="Excluir"
+								className="w-7 h-7 rounded-xl bg-red-500 text-white hover:bg-red-600 transition-transform transform hover:scale-110"
 							>
 								✖
 							</button>
 						</div>
 					</div>
 
-					{/* conteúdo */}
 					<div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-gray-700">
 						<div>
-							<span className="text-gray-500">Licenças:</span> {r.qtdLicenca}
+							<span className="text-gray-500">Licenças:</span>{" "}
+							{r.qtdLicenca}
 						</div>
 						<div>
 							<span className="text-gray-500">Dias Lib.:</span>{" "}
 							{r.qtdDiaLiberacao}
 						</div>
 						<div className="col-span-2">
-							<span className="text-gray-500">Status:</span> {r.status}
+							<span className="text-gray-500">Status:</span>{" "}
+							{r.status}
 						</div>
 					</div>
 				</li>
@@ -379,89 +365,21 @@ export default function ControleDeSistemaPage() {
 	return (
 		<div className="min-h-screen bg-gray-50">
 			<div className="flex">
-				{/* sidebar desktop reutilizável */}
+				{/* SIDEBAR PADRÃO */}
 				<Sidebar active="controle-sistema" />
 
-				{/* sidebar mobile (drawer da página) */}
-				{openSidebar && (
-					<div
-						className="fixed inset-0 z-40 sm:hidden"
-						aria-hidden="true"
-						onClick={() => setOpenSidebar(false)}
-					>
-						<div className="absolute inset-0 bg-black/40" />
-						<div
-							className="absolute left-0 top-0 h-full w-64 bg-white shadow-lg"
-							onClick={(e) => e.stopPropagation()}
-							role="dialog"
-							aria-label="Menu"
-						>
-							<div className="bg-gradient-to-r from-blue-700 to-blue-500 p-4 text-white">
-								<div className="font-semibold">AWSRegistro | Painel</div>
-							</div>
-							<nav className="p-3">
-								<a
-									href="/clientes"
-									className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-								>
-									Clientes
-								</a>
-								<a
-									href="/controle-sistema"
-									className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 font-semibold text-gray-900 bg-blue-50 border border-blue-200"
-								>
-									<span>Controle de Sistema</span>
-								</a>
-								<a
-									href="/cadastro-sistema"
-									className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-								>
-									Cadastro de Sistema
-								</a>
-								<a
-									href="/versao-sistema"
-									className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-								>
-									Versão dos Sistemas
-								</a>
-								<a
-									href="/clientes-versao"
-									className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-								>
-									Clientes por Versão
-								</a>
-								<a
-									href="#"
-									className="mb-1 block font-semibold rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-100"
-								>
-									Controle Registro
-								</a>
-							</nav>
-						</div>
-					</div>
-				)}
-
-				{/* área principal */}
+				{/* ÁREA PRINCIPAL */}
 				<div className="flex-1">
-					{/* topo mobile */}
-					<div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 sm:hidden">
-						<button
-							className="rounded-xl border px-3 py-2 text-sm shadow transition-transform hover:scale-105"
-							onClick={() => setOpenSidebar(true)}
-							aria-label="Abrir menu"
-						>
-							☰
-						</button>
-						<div className="ml-1 flex-1 text-center font-semibold text-white">
-							AWSRegistro | Controle de Sistema
-						</div>
+					{/* topo mobile padronizado */}
+					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b text-center font-semibold text-white">
+						Controle de Sistema
 					</div>
 
 					<main className="mx-auto max-w-7xl p-4 md:p-6">
-						{/* busca + ações (mobile e desktop separados) */}
+						{/* BUSCA + BOTÕES */}
 						<div className="mb-4 space-y-2">
-							{/* MOBILE: input + botões compactos */}
-							<div className="flex flex-wrap items-center gap-2 sm:hidden w-full">
+							{/* mobile */}
+							<div className="flex sm:hidden items-center gap-2">
 								<input
 									type="text"
 									placeholder="Pesquisa rápida"
@@ -470,52 +388,44 @@ export default function ControleDeSistemaPage() {
 										setQuery(e.target.value);
 										setPage(1);
 									}}
-									className="flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 placeholder:text-gray-500 text-md shadow"
+									className="flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow text-md text-gray-700"
 								/>
 								<button
 									onClick={handleAdd}
-									className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-gray-200 bg-white text-gray-700 shadow transform transition-transform hover:scale-105"
-									title="Adicionar"
-									aria-label="Adicionar"
+									className="w-10 h-10 rounded-lg border border-gray-200 bg-white shadow text-gray-700 transform transition-transform hover:scale-105"
 								>
 									➕
 								</button>
 								<button
 									onClick={handleExport}
-									className="inline-flex items-center justify-center w-10 h-10 rounded-lg border border-gray-200 bg-white text-blue-600 shadow transform transition-transform hover:scale-105"
-									title="Exportar CSV"
-									aria-label="Exportar CSV"
+									className="w-10 h-10 rounded-lg border border-gray-200 bg-white shadow text-blue-600 transform transition-transform hover:scale-105"
 								>
 									⬇️
 								</button>
 							</div>
 
-							{/* DESKTOP: input + botões com texto */}
-							<div className="hidden sm:flex sm:items-center sm:justify-between">
-								<div className="flex w-full items-center gap-2">
-									<input
-										type="text"
-										placeholder="Pesquisa rápida"
-										value={query}
-										onChange={(e) => {
-											setQuery(e.target.value);
-											setPage(1);
-										}}
-										className="w-full sm:w-72 rounded-xl border border-gray-200 bg-white px-3 py-2 text-md text-gray-600 placeholder:text-gray-500 shadow"
-									/>
+							{/* desktop */}
+							<div className="hidden sm:flex items-center justify-between">
+								<input
+									type="text"
+									placeholder="Pesquisa rápida"
+									value={query}
+									onChange={(e) => {
+										setQuery(e.target.value);
+										setPage(1);
+									}}
+									className="w-full sm:w-72 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow text-md text-gray-600"
+								/>
+								<div className="flex items-center gap-2">
 									<button
 										onClick={handleAdd}
-										className="rounded-xl px-3 py-2 border border-gray-200 bg-white text-sm font-medium text-gray-600 shadow transform transition-transform hover:scale-105"
-										title="Adicionar"
-										aria-label="Adicionar"
+										className="rounded-xl px-3 py-2 bg-white text-sm border border-gray-200 shadow text-gray-700 hover:scale-105 transform"
 									>
 										➕ Adicionar
 									</button>
 									<button
 										onClick={handleExport}
-										className="rounded-xl px-3 py-2 border border-gray-200 bg-white text-sm font-medium text-gray-600 shadow transform transition-transform hover:scale-105"
-										title="Exportar"
-										aria-label="Exportar"
+										className="rounded-xl px-3 py-2 bg-white text-sm border border-gray-200 shadow text-gray-700 hover:scale-105 transform"
 									>
 										⬇️ Exportar CSV
 									</button>
@@ -526,7 +436,7 @@ export default function ControleDeSistemaPage() {
 						{/* LISTA MOBILE */}
 						<MobileList />
 
-						{/* TABELA (sm+) */}
+						{/* TABELA DESKTOP */}
 						<div className="hidden sm:block rounded-xl bg-white shadow overflow-hidden">
 							<div className="w-full overflow-x-auto">
 								<table className="min-w-full border-separate border-spacing-0 text-sm">
@@ -536,7 +446,7 @@ export default function ControleDeSistemaPage() {
 												Ações
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 cursor-pointer text-center whitespace-nowrap"
 												onClick={() => toggleSort("cliente")}
 											>
 												Cliente{" "}
@@ -547,7 +457,7 @@ export default function ControleDeSistemaPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 cursor-pointer text-center whitespace-nowrap"
 												onClick={() => toggleSort("sistema")}
 											>
 												Sistema{" "}
@@ -558,10 +468,10 @@ export default function ControleDeSistemaPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 cursor-pointer text-center whitespace-nowrap"
 												onClick={() => toggleSort("qtdLicenca")}
 											>
-												Qtd. Licença{" "}
+												Qtd Licença{" "}
 												{sortKey === "qtdLicenca"
 													? sortDir === "asc"
 														? "▲"
@@ -569,10 +479,10 @@ export default function ControleDeSistemaPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 cursor-pointer text-center whitespace-nowrap"
 												onClick={() => toggleSort("qtdDiaLiberacao")}
 											>
-												Qtd. Dia Liberação{" "}
+												Qtd Dia Liberação{" "}
 												{sortKey === "qtdDiaLiberacao"
 													? sortDir === "asc"
 														? "▲"
@@ -580,7 +490,7 @@ export default function ControleDeSistemaPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 cursor-pointer text-center whitespace-nowrap"
 												onClick={() => toggleSort("status")}
 											>
 												Status{" "}
@@ -597,23 +507,23 @@ export default function ControleDeSistemaPage() {
 										{pageData.map((r, idx) => (
 											<tr
 												key={r.id}
-												className={idx % 2 === 0 ? "bg-white" : "bg-gray-100"}
+												className={
+													idx % 2 === 0
+														? "bg-white"
+														: "bg-gray-100"
+												}
 											>
 												<td className="px-3 py-3">
 													<div className="flex items-center justify-center gap-2">
 														<button
 															onClick={() => handleEdit(r.id)}
-															className="rounded-xl bg-yellow-400 text-white font-semibold w-7 h-7 hover:bg-yellow-500 transition-transform transform hover:scale-110"
-															title="Editar"
-															aria-label={`Editar ${nomeCliente(r.clienteId)}`}
+															className="w-7 h-7 rounded-xl bg-yellow-400 text-white hover:bg-yellow-500 transition-transform transform hover:scale-110"
 														>
 															✎
 														</button>
 														<button
 															onClick={() => handleDelete(r.id)}
-															className="rounded-xl bg-red-500 text-white font-semibold w-7 h-7 hover:bg-red-600 transition-transform transform hover:scale-110"
-															title="Excluir"
-															aria-label={`Excluir ${nomeCliente(r.clienteId)}`}
+															className="w-7 h-7 rounded-xl bg-red-500 text-white hover:bg-red-600 transition-transform transform hover:scale-110"
 														>
 															✖
 														</button>
@@ -621,21 +531,25 @@ export default function ControleDeSistemaPage() {
 												</td>
 
 												<td
-													className="px-3 py-3 text-center max-w-[18rem] truncate"
+													className="px-3 py-3 text-center truncate max-w-[18rem]"
 													title={nomeCliente(r.clienteId)}
 												>
 													{nomeCliente(r.clienteId)}
 												</td>
-												<td className="px-3 py-3 whitespace-nowrap text-center">
+
+												<td className="px-3 py-3 text-center whitespace-nowrap">
 													{r.sistema}
 												</td>
-												<td className="px-3 py-3 whitespace-nowrap text-center">
+
+												<td className="px-3 py-3 text-center whitespace-nowrap">
 													{r.qtdLicenca}
 												</td>
-												<td className="px-3 py-3 whitespace-nowrap text-center">
+
+												<td className="px-3 py-3 text-center whitespace-nowrap">
 													{r.qtdDiaLiberacao}
 												</td>
-												<td className="px-3 py-3 whitespace-nowrap text-center">
+
+												<td className="px-3 py-3 text-center whitespace-nowrap">
 													{r.status}
 												</td>
 											</tr>
@@ -644,8 +558,8 @@ export default function ControleDeSistemaPage() {
 										{pageData.length === 0 && (
 											<tr>
 												<td
-													className="px-3 py-8 text-center text-gray-500"
 													colSpan={6}
+													className="px-3 py-8 text-center text-gray-500"
 												>
 													Nenhum registro encontrado.
 												</td>
@@ -656,45 +570,46 @@ export default function ControleDeSistemaPage() {
 							</div>
 						</div>
 
-						{/* Paginação */}
+						{/* paginação */}
 						<div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-black">
 							<div className="text-sm text-gray-700">
-								{filtered.length} registro(s) • Página {page} de {totalPages}
+								{filtered.length} registro(s) • Página {page} de{" "}
+								{totalPages}
 							</div>
-							<div
-								className="flex items-center gap-2"
-								role="navigation"
-								aria-label="Paginação"
-							>
+
+							<div className="flex items-center gap-2">
 								<button
-									className="flex text-sm items-center justify-center rounded-xl border border-gray-200 bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
+									className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-blue-500 shadow-sm hover:scale-110 transition-transform disabled:opacity-40"
 									onClick={() => setPage(1)}
 									disabled={page === 1}
-									aria-label="Primeira página"
 								>
 									◀◀
 								</button>
+
 								<button
-									className="flex text-sm items-center justify-center rounded-xl border border-gray-200 bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
+									className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-blue-500 shadow-sm hover:scale-110 transition-transform disabled:opacity-40"
 									onClick={() => setPage((p) => Math.max(1, p - 1))}
 									disabled={page === 1}
-									aria-label="Página anterior"
 								>
 									◀
 								</button>
+
 								<button
-									className="flex text-sm items-center justify-center rounded-xl border border-gray-200 bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
-									onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+									className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-blue-500 shadow-sm hover:scale-110 transition-transform disabled:opacity-40"
+									onClick={() =>
+										setPage((p) =>
+											Math.min(totalPages, p + 1)
+										)
+									}
 									disabled={page === totalPages}
-									aria-label="Próxima página"
 								>
 									▶
 								</button>
+
 								<button
-									className="flex text-sm items-center justify-center rounded-xl border border-gray-200 bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
+									className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-blue-500 shadow-sm hover:scale-110 transition-transform disabled:opacity-40"
 									onClick={() => setPage(totalPages)}
 									disabled={page === totalPages}
-									aria-label="Última página"
 								>
 									▶▶
 								</button>
@@ -704,42 +619,33 @@ export default function ControleDeSistemaPage() {
 				</div>
 			</div>
 
-			{/* -------------------- POPUP -------------------- */}
+			{/* POPUP */}
 			{editingId !== null && (
-				<div
-					className="fixed inset-0 z-50"
-					role="dialog"
-					aria-modal="true"
-					aria-label={editingId === 0 ? "Adicionar Registro" : "Editar Registro"}
-				>
-					{/* backdrop */}
+				<div className="fixed inset-0 z-50">
 					<div className="absolute inset-0 bg-black/50" />
 
-					{/* wrapper full-screen no mobile; centralizado no desktop */}
 					<div className="absolute inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-3">
-						{/* card */}
-						<div className="h-full w-full sm:h-auto sm:w-full sm:max-w-2xl rounded-none sm:rounded-xl bg-white shadow-lg overflow-y-auto">
-							<h2 className="sticky top-0 z-10 px-6 py-4 text-xl font-semibold text-blue-700 bg-white border-b">
+						<div className="h-full w-full sm:h-auto sm:w-full sm:max-w-2xl bg-white rounded-none sm:rounded-xl shadow-lg overflow-y-auto">
+							<h2 className="sticky top-0 z-10 px-6 py-4 bg-white border-b text-xl font-semibold text-blue-700">
 								{editingId === 0 ? "Adicionar Registro" : "Editar Registro"}
 							</h2>
 
 							<div className="p-6">
-								<div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+								<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+									{/* CLIENTE */}
 									<label className="text-sm md:col-span-2">
-										<span className="mb-1 block text-black">Cliente *</span>
+										<span className="block mb-1 text-black">Cliente *</span>
 										<select
 											value={form.clienteId ?? ""}
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
-													clienteId: e.target.value
-														? Number(e.target.value)
-														: undefined,
+													clienteId: Number(e.target.value),
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										>
-											<option value="">Selecione uma empresa</option>
+											<option value="">Selecione</option>
 											{clientes.map((c) => (
 												<option key={c.id} value={c.id}>
 													{c.nome}
@@ -748,8 +654,9 @@ export default function ControleDeSistemaPage() {
 										</select>
 									</label>
 
+									{/* SISTEMA */}
 									<label className="text-sm md:col-span-2">
-										<span className="mb-1 block text-black">Sistema *</span>
+										<span className="block mb-1 text-black">Sistema *</span>
 										<select
 											value={form.sistema ?? ""}
 											onChange={(e) =>
@@ -760,7 +667,7 @@ export default function ControleDeSistemaPage() {
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										>
-											<option value="">Selecione um sistema</option>
+											<option value="">Selecione</option>
 											{sistemas.map((s) => (
 												<option key={s.id} value={s.nome}>
 													{s.nome}
@@ -769,95 +676,83 @@ export default function ControleDeSistemaPage() {
 										</select>
 									</label>
 
+									{/* LICENÇA */}
 									<label className="text-sm">
-										<span className="mb-1 block text-black">
-											Qtd. Licença *
-										</span>
+										<span className="block mb-1 text-black">Qtd Licença *</span>
 										<input
 											type="number"
+											min={0}
 											value={form.qtdLicenca ?? 0}
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
-													qtdLicenca:
-														e.target.value === ""
-															? undefined
-															: Number(e.target.value),
+													qtdLicenca: Number(e.target.value),
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-											min={0}
 										/>
 									</label>
 
+									{/* LIBERAÇÃO */}
 									<label className="text-sm">
-										<span className="mb-1 block text-black">
-											Qtd. Dia Liberação *
+										<span className="block mb-1 text-black">
+											Qtd Dia Liberação *
 										</span>
 										<input
 											type="number"
+											min={0}
 											value={form.qtdDiaLiberacao ?? 0}
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
-													qtdDiaLiberacao:
-														e.target.value === ""
-															? undefined
-															: Number(e.target.value),
+													qtdDiaLiberacao: Number(e.target.value),
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-											min={0}
 										/>
 									</label>
 
+									{/* QTD BANCO */}
 									<label className="text-sm">
-										<span className="mb-1 block text-black">
-											Qtd. Bancos de Dados
+										<span className="block mb-1 text-black">
+											Qtd Bancos de Dados
 										</span>
 										<input
 											type="number"
+											min={0}
 											value={form.qtdBanco ?? 0}
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
-													qtdBanco:
-														e.target.value === ""
-															? undefined
-															: Number(e.target.value),
+													qtdBanco: Number(e.target.value),
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-											min={0}
 										/>
 									</label>
 
+									{/* QTD CNPJ */}
 									<label className="text-sm">
-										<span className="mb-1 block text-black">Qtd. CNPJ</span>
+										<span className="block mb-1 text-black">Qtd CNPJ</span>
 										<input
 											type="number"
+											min={0}
 											value={form.qtdCnpj ?? 0}
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
-													qtdCnpj:
-														e.target.value === ""
-															? undefined
-															: Number(e.target.value),
+													qtdCnpj: Number(e.target.value),
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-											min={0}
 										/>
 									</label>
 
-									{/* Campos extras só quando MBLOCK */}
+									{/* CAMPOS MBLOCK */}
 									{(form.sistema ?? "").toUpperCase() === "MBLOCK" && (
 										<>
 											<label className="text-sm">
-												<span className="mb-1 block text-black">
-													IP (MBLOCK)
-												</span>
+												<span className="block mb-1 text-black">IP</span>
 												<input
 													type="text"
 													value={form.ipMblock ?? ""}
@@ -868,14 +763,11 @@ export default function ControleDeSistemaPage() {
 														}))
 													}
 													className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-													placeholder="Ex: 192.168.0.10"
 												/>
 											</label>
 
 											<label className="text-sm">
-												<span className="mb-1 block text-black">
-													Porta (MBLOCK)
-												</span>
+												<span className="block mb-1 text-black">Porta</span>
 												<input
 													type="text"
 													value={form.portaMblock ?? ""}
@@ -886,14 +778,14 @@ export default function ControleDeSistemaPage() {
 														}))
 													}
 													className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-													placeholder="Ex: 5432"
 												/>
 											</label>
 										</>
 									)}
 
+									{/* OBS */}
 									<label className="text-sm md:col-span-2">
-										<span className="mb-1 block text-black">Observações</span>
+										<span className="block mb-1 text-black">Observações</span>
 										<textarea
 											value={form.observacao ?? ""}
 											onChange={(e) =>
@@ -906,8 +798,10 @@ export default function ControleDeSistemaPage() {
 										/>
 									</label>
 
+									{/* STATUS */}
 									<label className="text-sm md:col-span-2">
-										<span className="mb-2 block text-black">Status *</span>
+										<span className="block mb-1 text-black">Status *</span>
+
 										<div className="space-y-2 text-black">
 											{([
 												"Regular",
@@ -937,13 +831,13 @@ export default function ControleDeSistemaPage() {
 								<div className="mt-6 flex justify-end gap-2">
 									<button
 										onClick={handleCancel}
-										className="rounded-xl bg-red-400 px-4 py-2 text-white hover:bg-red-500 transform transition-transform hover:scale-105"
+										className="rounded-xl bg-red-400 px-4 py-2 text-white hover:bg-red-500 transform hover:scale-105"
 									>
 										Cancelar
 									</button>
 									<button
 										onClick={handleSave}
-										className="rounded-xl bg-green-500 px-4 py-2 text-white hover:bg-green-600 transform transition-transform hover:scale-105"
+										className="rounded-xl bg-green-500 px-4 py-2 text-white hover:bg-green-600 transform hover:scale-105"
 									>
 										Gravar
 									</button>
@@ -953,7 +847,6 @@ export default function ControleDeSistemaPage() {
 					</div>
 				</div>
 			)}
-			{/* ------------------------------------------------ */}
 		</div>
 	);
 }

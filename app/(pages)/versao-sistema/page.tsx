@@ -9,8 +9,6 @@ type Sistema = {
 };
 
 export default function CadastroVersaoSistemaPage() {
-	const [openSidebar, setOpenSidebar] = useState(false);
-
 	const [sistemas, setSistemas] = useState<Sistema[]>([]);
 	const [idSistema, setIdSistema] = useState("");
 	const [versao, setVersao] = useState("");
@@ -86,35 +84,14 @@ export default function CadastroVersaoSistemaPage() {
 	return (
 		<div className="min-h-screen bg-gray-50">
 			<div className="flex">
-
 				{/* Sidebar reaproveitável */}
 				<Sidebar active="versao-sistema" />
 
-				{/* overlay do menu mobile */}
-				{openSidebar && (
-					<div
-						className="fixed inset-0 z-40 sm:hidden"
-						aria-hidden="true"
-						onClick={() => setOpenSidebar(false)}
-					>
-						<div className="absolute inset-0 bg-black/40" />
-					</div>
-				)}
-
 				{/* área principal */}
 				<div className="flex-1">
-
-					{/* topo mobile */}
-					<div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 sm:hidden">
-						<button
-							className="rounded-xl border px-3 py-2 text-sm shadow transition-transform hover:scale-105"
-							onClick={() => setOpenSidebar(true)}
-						>
-							☰
-						</button>
-						<div className="ml-1 flex-1 text-center font-semibold text-white">
-							AWSRegistro | Versões por Sistema
-						</div>
+					{/* topo mobile (sem botão de menu, igual opção A das outras telas) */}
+					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b text-center font-semibold text-white">
+						AWSRegistro | Versões por Sistema
 					</div>
 
 					<main className="mx-auto max-w-7xl p-4 md:p-6">
@@ -141,7 +118,10 @@ export default function CadastroVersaoSistemaPage() {
 									</div>
 								)}
 
-								<form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-3">
+								<form
+									onSubmit={handleSubmit}
+									className="grid grid-cols-1 gap-4 md:grid-cols-3"
+								>
 									<div>
 										<label className="mb-1 block text-xs font-bold text-slate-600">
 											Sistema

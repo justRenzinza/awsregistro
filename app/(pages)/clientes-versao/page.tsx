@@ -30,8 +30,6 @@ export default function ClientesVersaoPage() {
 	const [sortKey, setSortKey] = useState<SortKey | null>(null);
 	const [sortDir, setSortDir] = useState<SortDir>(null);
 
-	const [openSidebar, setOpenSidebar] = useState(false);
-
 	/* carregar dados */
 	async function loadRows() {
 		try {
@@ -142,88 +140,25 @@ export default function ClientesVersaoPage() {
 					</div>
 				</li>
 			))}
+
+			{pageData.length === 0 && (
+				<li className="rounded-xl border bg-white p-8 text-center text-gray-500">
+					Nenhum registro encontrado.
+				</li>
+			)}
 		</ul>
 	);
 
 	return (
 		<div className="min-h-screen bg-gray-50">
 			<div className="flex">
-				{/* sidebar desktop reutilizável */}
+				{/* sidebar reutilizável (desktop + mobile) */}
 				<Sidebar active="clientes-versao" />
-
-				{/* sidebar mobile */}
-				{openSidebar && (
-					<div
-						className="fixed inset-0 z-40 sm:hidden"
-						onClick={() => setOpenSidebar(false)}
-					>
-						<div className="absolute inset-0 bg-black/40" />
-						<div
-							className="absolute left-0 top-0 h-full w-64 bg-white shadow-lg"
-							onClick={(e) => e.stopPropagation()}
-						>
-							<div className="bg-gradient-to-r from-blue-700 to-blue-500 p-4 text-white text-center font-semibold">
-								AWSRegistro | Painel
-							</div>
-
-							<nav className="p-3">
-								<a
-									href="/clientes"
-									className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-								>
-									<span>Clientes</span>
-								</a>
-
-								<a
-									href="/controle-sistema"
-									className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-								>
-									<span>Controle de Sistema</span>
-								</a>
-
-								<a
-									href="/cadastro-sistema"
-									className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-								>
-									<span>Cadastro de Sistema</span>
-								</a>
-
-								<a
-									href="/versao-sistema"
-									className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-								>
-									<span>Versão dos Sistemas</span>
-								</a>
-
-								{/* ativo */}
-								<a
-									href="/clientes-versao"
-									className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold bg-blue-50 border border-blue-200 text-gray-900"
-								>
-									<span>Clientes por Versão</span>
-								</a>
-
-								<a
-									href="#"
-									className="mb-1 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100"
-								>
-									<span>Controle Registro</span>
-								</a>
-							</nav>
-						</div>
-					</div>
-				)}
 
 				{/* área principal */}
 				<div className="flex-1">
-					{/* topo mobile */}
-					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b flex items-center justify-between">
-						<button
-							className="rounded-xl border px-3 py-1 shadow text-white"
-							onClick={() => setOpenSidebar(true)}
-						>
-							☰
-						</button>
+                    {/* topo mobile apenas com título */}
+					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b flex items-center justify-center">
 						<div className="font-semibold text-white">
 							Clientes por Versão
 						</div>

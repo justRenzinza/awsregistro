@@ -4,9 +4,6 @@ import { useState, FormEvent } from "react";
 import Sidebar from "@/app/components/Sidebar";
 
 export default function CadastroSistemaPage() {
-	/* sidebar mobile */
-	const [openSidebar, setOpenSidebar] = useState(false);
-
 	/* formulário */
 	const [nome, setNome] = useState("");
 	const [loading, setLoading] = useState(false);
@@ -57,31 +54,14 @@ export default function CadastroSistemaPage() {
 	return (
 		<div className="min-h-screen bg-gray-50">
 			<div className="flex">
-				{/* sidebar reutilizável (desktop) */}
+				{/* sidebar reutilizável (desktop + mobile) */}
 				<Sidebar active="cadastro-sistema" />
-
-				{/* overlay do menu mobile (igual clientes/page.tsx) */}
-				{openSidebar && (
-					<div
-						className="fixed inset-0 z-40 sm:hidden"
-						aria-hidden="true"
-						onClick={() => setOpenSidebar(false)}
-					>
-						<div className="absolute inset-0 bg-black/40" />
-					</div>
-				)}
 
 				{/* área principal */}
 				<div className="flex-1">
-					{/* topo mobile */}
-					<div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 sm:hidden">
-						<button
-							className="rounded-xl border px-3 py-2 text-sm shadow transition-transform hover:scale-105"
-							onClick={() => setOpenSidebar(true)}
-						>
-							☰
-						</button>
-						<div className="ml-1 flex-1 text-center font-semibold text-white">
+					{/* topo mobile apenas com título (menu é no Sidebar) */}
+					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b flex items-center justify-center">
+						<div className="font-semibold text-white">
 							AWSRegistro | Cadastro de Sistema
 						</div>
 					</div>

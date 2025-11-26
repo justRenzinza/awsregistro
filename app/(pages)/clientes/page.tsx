@@ -76,9 +76,6 @@ export default function ClientesPage() {
 	const [sortDir, setSortDir] = useState<SortDir>(null);
 	const [rows, setRows] = useState<Cliente[]>([]);
 
-	/* sidebar mobile */
-	const [openSidebar, setOpenSidebar] = useState(false);
-
 	/* popup */
 	const [editingId, setEditingId] = useState<number | null>(null); // 0 = novo
 	const [editForm, setEditForm] = useState<Partial<Cliente>>({});
@@ -331,7 +328,9 @@ export default function ClientesPage() {
 				</li>
 			))}
 			{pageData.length === 0 && (
-				<li className="rounded-xl border bg-white p-8 text-center text-gray-500">Nenhum registro encontrado.</li>
+				<li className="rounded-xl border bg-white p-8 text-center text-gray-500">
+					Nenhum registro encontrado.
+				</li>
 			)}
 		</ul>
 	);
@@ -339,32 +338,16 @@ export default function ClientesPage() {
 	return (
 		<div className="min-h-screen bg-gray-50">
 			<div className="flex">
-				{/* sidebar desktop reutilizável */}
+				{/* sidebar reutilizável (desktop + mobile) */}
 				<Sidebar active="clientes" />
-
-				{/* sidebar mobile (só o backdrop, o conteúdo já está no componente Sidebar) */}
-				{openSidebar && (
-					<div
-						className="fixed inset-0 z-40 sm:hidden"
-						aria-hidden="true"
-						onClick={() => setOpenSidebar(false)}
-					>
-						<div className="absolute inset-0 bg-black/40" />
-					</div>
-				)}
 
 				{/* área principal */}
 				<div className="flex-1">
-					{/* topo mobile */}
-					<div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 sm:hidden">
-						<button
-							className="rounded-xl border px-3 py-2 text-sm shadow transition-transform hover:scale-105"
-							onClick={() => setOpenSidebar(true)}
-							aria-label="Abrir menu"
-						>
-							☰
-						</button>
-						<div className="ml-1 flex-1 text-center font-semibold text-white">AWSRegistro | Clientes</div>
+					{/* topo mobile apenas com título */}
+					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b flex items-center justify-center">
+						<div className="font-semibold text-white">
+							AWSRegistro | Clientes
+						</div>
 					</div>
 
 					<main className="mx-auto max-w-7xl p-4 md:p-6">
@@ -436,7 +419,9 @@ export default function ClientesPage() {
 								<table className="min-w-full border-separate border-spacing-0 text-sm">
 									<thead>
 										<tr className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-											<th className="px-3 py-3 w-28 text-center whitespace-nowrap">Ações</th>
+											<th className="px-3 py-3 w-28 text-center whitespace-nowrap">
+												Ações
+											</th>
 											<th
 												className="px-3 py-3 w-20 text-center whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("codigo")}
@@ -455,7 +440,8 @@ export default function ClientesPage() {
 												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("cnpj")}
 											>
-												CNPJ {sortKey === "cnpj" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												CNPJ{" "}
+												{sortKey === "cnpj" ? (sortDir === "asc" ? "▲" : "▼") : ""}
 											</th>
 											<th
 												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
@@ -482,7 +468,8 @@ export default function ClientesPage() {
 												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("email")}
 											>
-												Email {sortKey === "email" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												Email{" "}
+												{sortKey === "email" ? (sortDir === "asc" ? "▲" : "▼") : ""}
 											</th>
 										</tr>
 									</thead>
