@@ -381,7 +381,7 @@ export default function AtualizarClientesPage() {
 									</label>
 									<input
 										type="text"
-										value={versaoNova}
+										value=""
 										onChange={(e) => setVersaoNova(e.target.value)}
 										placeholder="2025.1.15.28"
 										className="rounded-xl border border-gray-300 px-3 py-2 shadow bg-white text-gray-700"
@@ -394,7 +394,7 @@ export default function AtualizarClientesPage() {
 									</label>
 									<input
 										type="date"
-										value={dataVersao}
+										value=""
 										onChange={(e) => setDataVersao(e.target.value)}
 										className="rounded-xl border border-gray-300 px-3 py-2 shadow bg-white text-gray-700"
 									/>
