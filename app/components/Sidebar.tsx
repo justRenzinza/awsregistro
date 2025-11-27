@@ -17,11 +17,10 @@ type SidebarProps = {
 };
 
 const items: { key: SidebarKey; label: string; href: string }[] = [
-	{ key: "clientes", label: "👥 Clientes", href: "/clientes" },
 	{
-		key: "controle-sistema",
-		label: "🧩 Controle de Sistema",
-		href: "/controle-sistema",
+		key: "atualizar-clientes",
+		label: "🔁 Atualizar Clientes",
+		href: "/atualizar-clientes",
 	},
 	{
 		key: "cadastro-sistema",
@@ -29,24 +28,32 @@ const items: { key: SidebarKey; label: string; href: string }[] = [
 		href: "/cadastro-sistema",
 	},
 	{
-		key: "versao-sistema",
-		label: "🗂️ Versão dos Sistemas",
-		href: "/versao-sistema",
+		key: "clientes",
+		label: "👥 Clientes",
+		href: "/clientes",
 	},
 	{
 		key: "clientes-versao",
 		label: "📊 Clientes por Versão",
 		href: "/clientes-versao",
 	},
-	{ 	key: "controle-registro", 
-		label: "📜 Controle de Registro", 
-		href: "#" },
 	{
-		key: "atualizar-clientes",
-		label: "🔁 Atualizar Clientes",
-		href: "/atualizar-clientes",
+		key: "controle-registro",
+		label: "📜 Controle de Registro",
+		href: "#",
+	},
+	{
+		key: "controle-sistema",
+		label: "🧩 Controle de Sistema",
+		href: "/controle-sistema",
+	},
+	{
+		key: "versao-sistema",
+		label: "🗂️ Versão dos Sistemas",
+		href: "/versao-sistema",
 	},
 ];
+
 
 export default function Sidebar({ active }: SidebarProps) {
 	const [openMobile, setOpenMobile] = useState(false);
