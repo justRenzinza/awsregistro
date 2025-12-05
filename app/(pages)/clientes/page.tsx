@@ -3,6 +3,10 @@
 import { useMemo, useState, useEffect } from "react";
 import { toCSV, downloadCSV } from "../../helpers/export";
 import Sidebar from "@/app/components/Sidebar";
+import { backendFetch } from "@/lib/backend";
+
+/* ========= configuração do sistema ========= */
+const SISTEMA_ID = 2;
 
 /* ========= tipos ========= */
 export type Cliente = {
@@ -14,6 +18,9 @@ export type Cliente = {
 	contato: string;
 	telefone: string;
 	email: string;
+	// status / contrato
+	idStatus?: number; // 1=Regular, 2=Irregular(S/Restrição), 3=Cancelado (soft delete), 4=Com Restrição
+	status?: string | null;
 };
 
 /* ========= helpers visuais ========= */
@@ -22,15 +29,20 @@ function formatCNPJ(v: string) {
 	return s
 		.replace(/^(\d{2})(\d)/, "$1.$2")
 		.replace(/^(\d{2}\.\d{3})(\d)/, "$1.$2")
-		.replace(/^(\d{2}\.\d{3}\.\d{3})(\d)/, "$1\/$2")
+		.replace(/^(\d{2}\.\d{3}\.\d{3})(\d)/, "$1/$2")
 		.replace(/^(\d{2}\.\d{3}\.\d{3}\/\d{4})(\d{1,2}).*$/, "$1-$2");
 }
+
 function formatPhone(v: string) {
 	const s = (v || "").replace(/\D/g, "").slice(0, 11);
 	if (s.length <= 10) {
-		return s.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{4})(\d{4})$/, "$1-$2");
+		return s
+			.replace(/^(\d{2})(\d)/, "($1) $2")
+			.replace(/(\d{4})(\d{4})$/, "$1-$2");
 	}
-	return s.replace(/^(\d{2})(\d)/, "($1) $2").replace(/(\d{5})(\d{4})$/, "$1-$2");
+	return s
+		.replace(/^(\d{2})(\d)/, "($1) $2")
+		.replace(/(\d{5})(\d{4})$/, "$1-$2");
 }
 
 /* ========= validações ========= */
@@ -38,21 +50,33 @@ function isValidEmail(email: string) {
 	const re = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
 	return re.test((email || "").trim());
 }
+
 function isValidCNPJ(cnpjRaw: string) {
 	const cnpj = (cnpjRaw || "").replace(/\D/g, "");
 	if (cnpj.length !== 14) return false;
 	if (/^(\d)\1{13}$/.test(cnpj)) return false;
+
 	const pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
 	const pesos2 = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
 	const arr = cnpj.split("").map((n) => parseInt(n, 10));
-	const d1 = 11 - (arr.slice(0, 12).reduce((acc, n, i) => acc + n * pesos1[i], 0) % 11);
+
+	const soma1 = arr
+		.slice(0, 12)
+		.reduce((acc, n, i) => acc + n * pesos1[i], 0);
+	const d1 = 11 - (soma1 % 11);
 	const dv1 = d1 >= 10 ? 0 : d1;
-	const d2 = 11 - ([...arr.slice(0, 12), dv1].reduce((acc, n, i) => acc + n * pesos2[i], 0) % 11);
+
+	const soma2 = [...arr.slice(0, 12), dv1].reduce(
+		(acc, n, i) => acc + n * pesos2[i],
+		0
+	);
+	const d2 = 11 - (soma2 % 11);
 	const dv2 = d2 >= 10 ? 0 : d2;
+
 	return cnpj.slice(-2) === `${dv1}${dv2}`;
 }
 
-/* ========= helpers de ordenação ========= */
+/* ========= datas ========= */
 function parseBRDate(d: string) {
 	const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(d || "");
 	if (!m) return 0;
@@ -60,15 +84,59 @@ function parseBRDate(d: string) {
 	return new Date(Number(yyyy), Number(mm) - 1, Number(dd)).getTime();
 }
 
+/** Converte "2024-10-21" ou "2024-10-21T00:00:00" em "21/10/2024" */
+function formatBackendDate(d: string) {
+	if (!d) return "";
+	const iso = d.split("T")[0];
+	const [yyyy, mm, dd] = iso.split("-");
+	if (!yyyy || !mm || !dd) return d;
+	return `${dd.padStart(2, "0")}/${mm.padStart(2, "0")}/${yyyy}`;
+}
+
+/* ========= mapeamento da API externa ========= */
+function mapClienteFromApi(row: any): Cliente {
+	return {
+		id: Number(row.id ?? row.idCliente ?? row.codigo ?? 0),
+		codigo: Number(row.codigo ?? row.id ?? row.idCliente ?? 0),
+		razaoSocial:
+			row.razaoSocial ??
+			row.razao_social ??
+			row.nome ?? // alguns backends usam "nome"
+			row.nomeCliente ??
+			"",
+		cnpj: row.cnpj ?? row.cnpjCpf ?? row.cnpj_cpf ?? "",
+		dataRegistro: formatBackendDate(
+			row.dataRegistro ??
+				row.data_registro ??
+				row.datCadastro ??
+				row.data ??
+				""
+		),
+		contato: row.contato ?? row.nomeContato ?? row.responsavel ?? "",
+		telefone: row.telefone ?? row.telefoneContato ?? row.celular ?? "",
+		email: row.email ?? row.emailContato ?? "",
+		idStatus:
+			row.idStatus ??
+			row.id_status ??
+			(row.status === "Irregular (Contrato Cancelado)" ? 3 : undefined),
+		status: row.status ?? row.descricaoStatus ?? null,
+	};
+}
+
 /* ========= componente ========= */
 type SortKey = keyof Pick<
 	Cliente,
-	"codigo" | "razaoSocial" | "cnpj" | "dataRegistro" | "contato" | "telefone" | "email"
+	| "codigo"
+	| "razaoSocial"
+	| "cnpj"
+	| "dataRegistro"
+	| "contato"
+	| "telefone"
+	| "email"
 >;
 type SortDir = "asc" | "desc" | null;
 
 export default function ClientesPage() {
-	/* tabela */
 	const [query, setQuery] = useState("");
 	const [page, setPage] = useState(1);
 	const [pageSize] = useState(10);
@@ -76,25 +144,90 @@ export default function ClientesPage() {
 	const [sortDir, setSortDir] = useState<SortDir>(null);
 	const [rows, setRows] = useState<Cliente[]>([]);
 
-	/* popup */
 	const [editingId, setEditingId] = useState<number | null>(null); // 0 = novo
 	const [editForm, setEditForm] = useState<Partial<Cliente>>({});
-	const [errors, setErrors] = useState<{ cnpj?: string; email?: string }>({});
+	const [errors, setErrors] = useState<{
+		cnpj?: string;
+		email?: string;
+		razaoSocial?: string;
+	}>({});
+	const [originalCnpj, setOriginalCnpj] = useState<string | null>(null);
 
-	/* ====== carregar dados do banco ====== */
+	/* ====== carregar dados do backend (nova rota listaclientes) ====== */
 	async function loadRows() {
 		try {
-			const resp = await fetch("/api/clientes", { cache: "no-store" });
-			if (!resp.ok) throw new Error(`Erro HTTP ${resp.status}`);
-			const json = await resp.json();
-			if (json?.ok && Array.isArray(json.data)) {
-				setRows(json.data as Cliente[]);
-			} else {
-				console.warn("Resposta inesperada de /api/clientes:", json);
+			const data = await backendFetch("/autenticacao/listaclientes", {
+				method: "GET",
+			});
+
+			console.log(
+				"Resposta bruta da API /autenticacao/listaclientes:",
+				data
+			);
+
+			let lista: any[] = [];
+
+			const anyData: any = data;
+			if (Array.isArray(anyData?.listaclientes)) {
+				lista = anyData.listaclientes;
+			} else if (Array.isArray(anyData?.listacliente)) {
+				lista = anyData.listacliente;
+			} else if (Array.isArray(data)) {
+				lista = data;
+			} else if (data && typeof data === "object") {
+				const d: any = data;
+
+				if (Array.isArray(d.data)) lista = d.data;
+				else if (Array.isArray(d.items)) lista = d.items;
+				else if (Array.isArray(d.result)) lista = d.result;
+				else if (Array.isArray(d.clientes)) lista = d.clientes;
+				else if (Array.isArray(d.lista)) lista = d.lista;
+				else if (Array.isArray(d.value)) lista = d.value;
+				else if (Array.isArray(d.$values)) lista = d.$values;
+				else {
+					const values = Object.values(d);
+					if (values.length === 1 && Array.isArray(values[0])) {
+						lista = values[0] as any[];
+					}
+				}
 			}
+
+			if (!Array.isArray(lista)) {
+				console.warn(
+					"Não foi possível identificar a lista de clientes na resposta:",
+					data
+				);
+				setRows([]);
+				return;
+			}
+
+			const mapped: Cliente[] = lista.map(mapClienteFromApi);
+
+			const uniqueMap = new Map<string, Cliente>();
+			for (const c of mapped) {
+				const cnpjDigits = (c.cnpj || "").replace(/\D/g, "");
+				const key = String(
+					c.id || c.codigo || cnpjDigits || c.razaoSocial.toLowerCase()
+				);
+				if (!uniqueMap.has(key)) {
+					uniqueMap.set(key, c);
+				}
+			}
+			let unique = Array.from(uniqueMap.values());
+
+			// remove do front clientes com contrato cancelado (idStatus = 3)
+			unique = unique.filter(
+				(c) =>
+					c.idStatus !== 3 &&
+					!String(c.status || "")
+						.toLowerCase()
+						.includes("cancelado")
+			);
+
+			setRows(unique);
 		} catch (e) {
-			console.error("Falha ao buscar clientes:", e);
-			alert("Não foi possível carregar os clientes.");
+			console.error("Falha ao buscar clientes no backend:", e);
+			alert("Não foi possível carregar os clientes do servidor.");
 		}
 	}
 
@@ -126,7 +259,9 @@ export default function ClientesPage() {
 				if (sortKey === "codigo") {
 					cmp = (a.codigo ?? 0) - (b.codigo ?? 0);
 				} else if (sortKey === "dataRegistro") {
-					cmp = parseBRDate(a.dataRegistro ?? "") - parseBRDate(b.dataRegistro ?? "");
+					cmp =
+						parseBRDate(a.dataRegistro ?? "") -
+						parseBRDate(b.dataRegistro ?? "");
 				} else {
 					const va = String(a[sortKey] ?? "").toLowerCase();
 					const vb = String(b[sortKey] ?? "").toLowerCase();
@@ -141,12 +276,10 @@ export default function ClientesPage() {
 	const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
 	const pageData = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-	/* mantém a página válida quando o filtro muda */
 	useEffect(() => {
 		setPage((p) => Math.min(p, totalPages));
 	}, [totalPages]);
 
-	/* trava/destrava o scroll do body quando o modal abre/fecha */
 	useEffect(() => {
 		if (editingId !== null) {
 			document.body.style.overflow = "hidden";
@@ -173,16 +306,55 @@ export default function ClientesPage() {
 	}
 
 	async function handleDelete(id: number) {
-		const alvo = rows.find((r) => r.id === id);
-		const nome = alvo?.razaoSocial ?? "este registro";
-		if (!window.confirm(`Tem certeza que deseja excluir ${nome}?`)) return;
+		const cliente = rows.find((r) => r.id === id);
+		if (!cliente) return;
+
+		const ok = window.confirm(
+			`Você deseja realmente cancelar o contrato do cliente "${cliente.razaoSocial}"?`
+		);
+		if (!ok) return;
+
+		const cnpjDigits = (cliente.cnpj || "").replace(/\D/g, "");
+		const hojeISO = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
+		const hojeBR = new Date().toLocaleDateString("pt-BR");
+
+		// payload conforme Swagger, focando na mudança de status (soft delete)
+		const payload = {
+			// campos principais
+			nome: cliente.razaoSocial,
+			cnpj: cnpjDigits,
+			dataRegistro: cliente.dataRegistro || hojeBR,
+			nomeContato: cliente.contato ?? "",
+			telefone: cliente.telefone ?? "",
+			email: cliente.email ?? "",
+			// se o backend usar esses campos, mantemos valores neutros
+			quantidadeLicenca: 0,
+			quantidadeDiaLiberacao: 0,
+			// status / controle
+			idStatus: 3,
+			status: "Irregular (Contrato Cancelado)",
+			idSistema: SISTEMA_ID,
+			observacaoStatus: `Cancelado via AWSRegistro em ${hojeBR}`,
+			versaoAnterior: "",
+			versaoAtual: "",
+			dataAtualizacao: hojeISO,
+			passoAtualizacao: 0,
+		};
+
 		try {
-			const resp = await fetch(`/api/clientes/${id}`, { method: "DELETE" });
-			if (!resp.ok) throw new Error(`Erro HTTP ${resp.status}`);
+			await backendFetch(
+				`/autenticacao/cliente/${cnpjDigits}/${SISTEMA_ID}`,
+				{
+					method: "PUT",
+					body: JSON.stringify(payload),
+				}
+			);
+
+			// recarrega lista já sem o cliente cancelado
 			await loadRows();
 		} catch (e) {
-			console.error("Falha ao excluir:", e);
-			alert("Não foi possível excluir o cliente.");
+			console.error("Falha ao cancelar cliente no backend:", e);
+			alert("Não foi possível cancelar o contrato do cliente.");
 		}
 	}
 
@@ -190,7 +362,9 @@ export default function ClientesPage() {
 		const c = rows.find((r) => r.id === id);
 		if (!c) return;
 		setEditingId(id);
-		// edição com dígitos no CNPJ
+
+		setOriginalCnpj(c.cnpj?.replace(/\D/g, "") || null);
+
 		setEditForm({ ...c, cnpj: c.cnpj?.replace(/\D/g, "") });
 		setErrors({});
 	}
@@ -199,63 +373,90 @@ export default function ClientesPage() {
 		setEditingId(null);
 		setEditForm({});
 		setErrors({});
+		setOriginalCnpj(null);
 	}
 
 	async function handleEditSave() {
 		if (editingId === null) return;
 
-		const errs: { cnpj?: string; email?: string } = {};
+		const errs: {
+			cnpj?: string;
+			email?: string;
+			razaoSocial?: string;
+		} = {};
+
 		const email = (editForm.email ?? "").trim();
 		const cnpjDigits = (editForm.cnpj ?? "").toString().replace(/\D/g, "");
+		const razaoSocial = (editForm.razaoSocial ?? "").trim();
 
+		if (!razaoSocial) errs.razaoSocial = "Razão social é obrigatória.";
 		if (!email) errs.email = "Email é obrigatório.";
 		else if (!isValidEmail(email)) errs.email = "Email inválido.";
 		if (!cnpjDigits) errs.cnpj = "CNPJ é obrigatório.";
 		else if (!isValidCNPJ(cnpjDigits)) errs.cnpj = "CNPJ inválido.";
 
-		if (errs.email || errs.cnpj) {
+		if (errs.email || errs.cnpj || errs.razaoSocial) {
 			setErrors(errs);
 			return;
 		}
 
-		const payload = {
-			codigo: Number(editForm.codigo ?? 0),
-			razaoSocial: editForm.razaoSocial ?? "",
-			cnpj: cnpjDigits,
-			dataRegistro: editForm.dataRegistro ?? new Date().toLocaleDateString("pt-BR"),
+		// payload no padrão do Swagger: nome, nomeContato etc
+		const payloadBase = {
+			// nomes "oficiais"
+			nome: razaoSocial,
+			nomeContato: editForm.contato ?? "",
+			// nomes usados em outros lugares da API (garante compatibilidade)
+			razaoSocial: razaoSocial,
 			contato: editForm.contato ?? "",
+			// campos básicos
+			cnpj: cnpjDigits,
+			dataRegistro:
+				editForm.dataRegistro ?? new Date().toLocaleDateString("pt-BR"),
 			telefone: editForm.telefone ?? "",
 			email: email,
+			// se o backend usar isso no body, já está aqui também
+			idSistema: SISTEMA_ID,
 		};
 
 		try {
 			if (editingId === 0) {
-				const resp = await fetch("/api/clientes", {
+				// novo cliente
+				await backendFetch("/autenticacao/cliente", {
 					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(payload),
+					body: JSON.stringify({
+						...payloadBase,
+					}),
 				});
-				if (!resp.ok) throw new Error(`Erro HTTP ${resp.status}`);
 			} else {
-				const resp = await fetch(`/api/clientes/${editingId}`, {
-					method: "PUT",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(payload),
-				});
-				if (!resp.ok) throw new Error(`Erro HTTP ${resp.status}`);
+				// alteração de cliente existente
+				// IdCliente na URL = CNPJ ANTIGO
+				const pathCnpj = originalCnpj || cnpjDigits;
+
+				await backendFetch(
+					`/autenticacao/cliente/${pathCnpj}/${SISTEMA_ID}`,
+					{
+						method: "PUT",
+						body: JSON.stringify({
+							...payloadBase,
+						}),
+					}
+				);
 			}
+
 			setEditingId(null);
 			setEditForm({});
 			setErrors({});
+			setOriginalCnpj(null);
 			await loadRows();
 		} catch (e) {
-			console.error("Falha ao salvar:", e);
+			console.error("Falha ao salvar cliente no backend:", e);
 			alert("Não foi possível salvar o cliente.");
 		}
 	}
 
 	function handleAdd() {
 		setEditingId(0);
+		setOriginalCnpj(null);
 		setEditForm({
 			codigo: rows.length ? Math.max(...rows.map((r) => r.codigo)) + 1 : 1,
 			razaoSocial: "",
@@ -274,20 +475,20 @@ export default function ClientesPage() {
 		downloadCSV(csv, nome);
 	}
 
-	function handlePrint() {
-		window.print();
-	}
-
 	/* ====== LISTA MOBILE ====== */
 	const MobileList = () => (
 		<ul className="sm:hidden space-y-3">
-			{pageData.map((r) => (
-				<li key={r.id} className="rounded-xl border bg-white p-4 shadow">
-					{/* header do card com ações à direita */}
+			{pageData.map((r, idx) => (
+				<li
+					key={`${page}-${idx}`}
+					className="rounded-xl border bg-white p-4 shadow"
+				>
 					<div className="flex items-start gap-3">
 						<div className="min-w-0 flex-1">
 							<div className="text-sm text-gray-500">Código {r.codigo}</div>
-							<div className="font-medium text-gray-900 break-words">{r.razaoSocial}</div>
+							<div className="font-medium text-gray-900 break-words">
+								{r.razaoSocial}
+							</div>
 						</div>
 
 						<div className="flex items-start gap-1">
@@ -310,16 +511,30 @@ export default function ClientesPage() {
 						</div>
 					</div>
 
-					{/* conteúdo */}
 					<div className="mt-2 grid grid-cols-1 gap-1 text-sm text-gray-700">
-						<div><span className="text-gray-500">CNPJ:</span> {formatCNPJ(r.cnpj)}</div>
-						<div><span className="text-gray-500">Data:</span> {r.dataRegistro}</div>
-						<div><span className="text-gray-500">Contato:</span> {r.contato}</div>
-						<div><span className="text-gray-500">Telefone:</span> {formatPhone(r.telefone)}</div>
+						<div>
+							<span className="text-gray-500">CNPJ:</span>{" "}
+							{formatCNPJ(r.cnpj)}
+						</div>
+						<div>
+							<span className="text-gray-500">Data:</span> {r.dataRegistro}
+						</div>
+						<div>
+							<span className="text-gray-500">Contato:</span> {r.contato}
+						</div>
+						<div>
+							<span className="text-gray-500">Telefone:</span>{" "}
+							{formatPhone(r.telefone)}
+						</div>
 						<div className="break-all">
 							<span className="text-gray-500">Email:</span>{" "}
 							{isValidEmail(r.email) ? (
-								<a href={`mailto:${r.email}`} className="underline underline-offset-2">{r.email}</a>
+								<a
+									href={`mailto:${r.email}`}
+									className="underline underline-offset-2"
+								>
+									{r.email}
+								</a>
 							) : (
 								<span className="text-gray-400">—</span>
 							)}
@@ -338,12 +553,9 @@ export default function ClientesPage() {
 	return (
 		<div className="min-h-screen bg-gray-50">
 			<div className="flex">
-				{/* sidebar reutilizável (desktop + mobile) */}
 				<Sidebar active="clientes" />
 
-				{/* área principal */}
 				<div className="flex-1">
-					{/* topo mobile apenas com título */}
 					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b flex items-center justify-center">
 						<div className="font-semibold text-white">
 							AWSRegistro | Clientes
@@ -351,15 +563,17 @@ export default function ClientesPage() {
 					</div>
 
 					<main className="mx-auto max-w-7xl p-4 md:p-6">
-						{/* busca + ações (mobile e desktop separados) */}
 						<div className="mb-4 space-y-2">
-							{/* MOBILE: input + botões compactos */}
+							{/* mobile */}
 							<div className="flex flex-wrap items-center gap-2 sm:hidden w-full">
 								<input
 									type="text"
 									placeholder="Pesquisa rápida"
 									value={query}
-									onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+									onChange={(e) => {
+										setQuery(e.target.value);
+										setPage(1);
+									}}
 									className="flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 placeholder:text-gray-500 text-md shadow"
 								/>
 								<button
@@ -380,14 +594,17 @@ export default function ClientesPage() {
 								</button>
 							</div>
 
-							{/* DESKTOP: mantém botões com texto, sem borda visível */}
+							{/* desktop */}
 							<div className="hidden sm:flex sm:items-center sm:justify-between">
 								<div className="flex w-full items-center gap-2">
 									<input
 										type="text"
 										placeholder="Pesquisa rápida"
 										value={query}
-										onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+										onChange={(e) => {
+											setQuery(e.target.value);
+											setPage(1);
+										}}
 										className="w-full sm:w-72 rounded-xl border border-gray-200 placeholder:text-gray-500 bg-white px-3 py-2 text-md text-gray-600 shadow"
 									/>
 									<button
@@ -404,72 +621,98 @@ export default function ClientesPage() {
 										title="Exportar"
 										aria-label="Exportar"
 									>
-										⬇️ Exportar CSV
+										⬇️ Exportar
 									</button>
 								</div>
 							</div>
 						</div>
 
-						{/* LISTA MOBILE */}
 						<MobileList />
 
-						{/* TABELA (sm+) */}
 						<div className="hidden sm:block rounded-xl bg-white shadow overflow-hidden">
 							<div className="w-full overflow-x-auto">
 								<table className="min-w-full border-separate border-spacing-0 text-sm">
 									<thead>
 										<tr className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-											<th className="px-3 py-3 w-28 text-center whitespace-nowrap">
+											<th className="px-3 py-3 w-28 text-left whitespace-nowrap">
 												Ações
 											</th>
 											<th
-												className="px-3 py-3 w-20 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 w-20 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("codigo")}
 											>
 												Código{" "}
-												{sortKey === "codigo" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												{sortKey === "codigo"
+													? sortDir === "asc"
+														? "▲"
+														: "▼"
+													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("razaoSocial")}
 											>
 												Razão Social{" "}
-												{sortKey === "razaoSocial" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												{sortKey === "razaoSocial"
+													? sortDir === "asc"
+														? "▲"
+														: "▼"
+													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("cnpj")}
 											>
 												CNPJ{" "}
-												{sortKey === "cnpj" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												{sortKey === "cnpj"
+													? sortDir === "asc"
+														? "▲"
+														: "▼"
+													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("dataRegistro")}
 											>
 												Data Registro{" "}
-												{sortKey === "dataRegistro" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												{sortKey === "dataRegistro"
+													? sortDir === "asc"
+														? "▲"
+														: "▼"
+													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("contato")}
 											>
 												Contato{" "}
-												{sortKey === "contato" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												{sortKey === "contato"
+													? sortDir === "asc"
+														? "▲"
+														: "▼"
+													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("telefone")}
 											>
 												Telefone{" "}
-												{sortKey === "telefone" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												{sortKey === "telefone"
+													? sortDir === "asc"
+														? "▲"
+														: "▼"
+													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-center whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("email")}
 											>
 												Email{" "}
-												{sortKey === "email" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												{sortKey === "email"
+													? sortDir === "asc"
+														? "▲"
+														: "▼"
+													: ""}
 											</th>
 										</tr>
 									</thead>
@@ -477,7 +720,7 @@ export default function ClientesPage() {
 									<tbody className="text-gray-900">
 										{pageData.map((r, idx) => (
 											<tr
-												key={r.id}
+												key={`${page}-${idx}`}
 												className={idx % 2 === 0 ? "bg-white" : "bg-gray-100"}
 											>
 												<td className="px-3 py-3">
@@ -501,30 +744,30 @@ export default function ClientesPage() {
 													</div>
 												</td>
 
-												<td className="px-3 py-3 whitespace-nowrap text-center tabular-nums">
+												<td className="px-3 py-3 whitespace-nowrap text-left tabular-nums">
 													{r.codigo}
 												</td>
 
 												<td
-													className="px-3 py-3 text-center max-w-[18rem] truncate"
+													className="px-3 py-3 text-left max-w-[18rem] truncate"
 													title={r.razaoSocial}
 												>
 													{r.razaoSocial}
 												</td>
 
-												<td className="px-3 py-3 whitespace-nowrap text-center">
+												<td className="px-3 py-3 whitespace-nowrap text-left">
 													{formatCNPJ(r.cnpj)}
 												</td>
-												<td className="px-3 py-3 whitespace-nowrap text-center">
+												<td className="px-3 py-3 whitespace-nowrap text-left">
 													{r.dataRegistro}
 												</td>
-												<td className="px-3 py-3 whitespace-nowrap text-center">
+												<td className="px-3 py-3 whitespace-nowrap text-left">
 													{r.contato}
 												</td>
-												<td className="px-3 py-3 whitespace-nowrap text-center">
+												<td className="px-3 py-3 whitespace-nowrap text-left">
 													{formatPhone(r.telefone)}
 												</td>
-												<td className="px-3 py-3 whitespace-nowrap text-center">
+												<td className="px-3 py-3 whitespace-nowrap text-left">
 													{isValidEmail(r.email) ? (
 														<a
 															href={`mailto:${r.email}`}
@@ -554,7 +797,6 @@ export default function ClientesPage() {
 							</div>
 						</div>
 
-						{/* paginação */}
 						<div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-black">
 							<div className="text-sm text-gray-700">
 								{filtered.length} registro(s) • Página {page} de {totalPages}
@@ -582,7 +824,9 @@ export default function ClientesPage() {
 								</button>
 								<button
 									className="flex text-sm items-center justify-center rounded-xl bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
-									onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+									onClick={() =>
+										setPage((p) => Math.min(totalPages, p + 1))
+									}
 									disabled={page === totalPages}
 									aria-label="Próxima página"
 								>
@@ -602,7 +846,6 @@ export default function ClientesPage() {
 				</div>
 			</div>
 
-			{/* popup adicionar/editar */}
 			{editingId !== null && (
 				<div
 					className="fixed inset-0 z-50"
@@ -610,12 +853,8 @@ export default function ClientesPage() {
 					aria-modal="true"
 					aria-label={editingId === 0 ? "Adicionar Cliente" : "Editar Cliente"}
 				>
-					{/* backdrop */}
 					<div className="absolute inset-0 bg-black/50" />
-
-					{/* wrapper: full-screen no mobile, centralizado no desktop */}
 					<div className="absolute inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-3">
-						{/* card */}
 						<div className="h-full w-full sm:h-auto sm:w-full sm:max-w-2xl rounded-none sm:rounded-xl bg-white shadow-lg overflow-y-auto">
 							<h2 className="sticky top-0 z-10 px-6 py-4 text-xl font-semibold text-blue-700 bg-white border-b">
 								{editingId === 0 ? "Adicionar Cliente" : "Editar Cliente"}
@@ -643,14 +882,30 @@ export default function ClientesPage() {
 										<input
 											type="text"
 											value={editForm.razaoSocial ?? ""}
-											onChange={(e) =>
+											onChange={(e) => {
+												const v = e.target.value;
 												setEditForm((prev) => ({
 													...prev,
-													razaoSocial: e.target.value,
-												}))
-											}
-											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+													razaoSocial: v,
+												}));
+												setErrors((prev) => ({
+													...prev,
+													razaoSocial: v.trim()
+														? undefined
+														: "Razão social é obrigatória.",
+												}));
+											}}
+											className={`w-full rounded border px-3 py-2 text-sm ${
+												errors.razaoSocial
+													? "border-red-500"
+													: "border-gray-300"
+											} text-black`}
 										/>
+										{errors.razaoSocial && (
+											<p className="mt-1 text-xs text-red-600">
+												{errors.razaoSocial}
+											</p>
+										)}
 									</label>
 
 									<label className="text-sm">
@@ -674,7 +929,10 @@ export default function ClientesPage() {
 														cnpj: "CNPJ inválido.",
 													}));
 												else
-													setErrors((prev) => ({ ...prev, cnpj: undefined }));
+													setErrors((prev) => ({
+														...prev,
+														cnpj: undefined,
+													}));
 											}}
 											onBlur={() => {
 												setEditForm((prev) => ({
@@ -758,7 +1016,10 @@ export default function ClientesPage() {
 														email: "Email inválido.",
 													}));
 												else
-													setErrors((prev) => ({ ...prev, email: undefined }));
+													setErrors((prev) => ({
+														...prev,
+														email: undefined,
+													}));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
 												errors.email ? "border-red-500" : "border-gray-300"

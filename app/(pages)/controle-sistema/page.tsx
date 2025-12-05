@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { downloadCSV, toCSVControleSistema } from "../../helpers/export";
 import Sidebar from "@/app/components/Sidebar";
+import { backendFetch } from "@/lib/backend";
 
 /* ------------ tipos básicos ----------- */
 type ClienteBase = { id: number; nome: string };
@@ -32,6 +33,103 @@ type ControleSistema = {
 	observacao?: string | null;
 };
 
+/* ===== helpers genéricos para parse de resposta ===== */
+
+function normalizeList(data: any): any[] {
+	if (!data) return [];
+
+	if (Array.isArray(data)) return data;
+
+	const d: any = data;
+
+	if (Array.isArray(d.data)) return d.data;
+	if (Array.isArray(d.items)) return d.items;
+	if (Array.isArray(d.result)) return d.result;
+	if (Array.isArray(d.lista)) return d.lista;
+	if (Array.isArray(d.clientes)) return d.clientes;
+	if (Array.isArray(d.sistemas)) return d.sistemas;
+	if (Array.isArray(d.value)) return d.value;
+	if (Array.isArray(d.$values)) return d.$values;
+
+	const values = Object.values(d);
+	if (values.length === 1 && Array.isArray(values[0])) {
+		return values[0] as any[];
+	}
+
+	return [];
+}
+
+function mapClienteFromApi(row: any): ClienteBase {
+	const base = row.cliente ?? row;
+
+	return {
+		id: Number(
+			base.id ?? base.idCliente ?? base.codigo ?? row.idCliente ?? 0
+		),
+		nome:
+			base.nome ??
+			base.razaoSocial ??
+			base.razao_social ??
+			base.nomeCliente ??
+			"",
+	};
+}
+
+function mapSistemaFromApi(row: any): Sistema {
+	const nome =
+		row.sistema ??
+		row.nomeSistema ??
+		row.sistemaNome ??
+		row.descricao ??
+		row.nome ??
+		"";
+
+	const id =
+		Number(row.idSistema ?? row.sistemaId ?? row.id ?? 0) || nome.length;
+
+	return {
+		id,
+		nome,
+	};
+}
+
+function mapControleFromApi(row: any): ControleSistema {
+	const clienteBase = row.cliente ?? row;
+
+	return {
+		id: Number(row.id ?? row.idControle ?? row.codigo ?? 0),
+		clienteId: Number(
+			clienteBase.id ?? clienteBase.idCliente ?? row.clienteId ?? 0
+		),
+		sistema:
+			row.sistema ??
+			row.nomeSistema ??
+			row.sistemaNome ??
+			row.nome ??
+			"",
+		qtdLicenca: Number(
+			row.qtdLicenca ??
+				row.qtd_licenca ??
+				row.quantidadeLicenca ??
+				row.quantidade_licenca ??
+				0
+		),
+		qtdDiaLiberacao: Number(
+			row.qtdDiaLiberacao ?? row.qtd_dia_liberacao ?? row.qtdDiaLib ?? 0
+		),
+		status:
+			row.status ??
+			row.statusContrato ??
+			row.situacao ??
+			("Regular" as StatusContrato),
+		qtdBanco: Number(row.qtdBanco ?? row.qtd_banco ?? 0),
+		qtdCnpj: Number(row.qtdCnpj ?? row.qtd_cnpj ?? 0),
+		ipMblock: row.ipMblock ?? row.ip ?? null,
+		portaMblock: row.portaMblock ?? row.porta ?? null,
+		observacao: row.observacao ?? row.obs ?? row.observacoes ?? null,
+	};
+}
+
 export default function ControleDeSistemaPage() {
 	/* tabela e filtros */
 	const [query, setQuery] = useState("");
@@ -39,10 +137,8 @@ export default function ControleDeSistemaPage() {
 	const [pageSize] = useState(10);
 	const [rows, setRows] = useState<ControleSistema[]>([]);
 
-	/* clientes */
+	/* clientes e sistemas derivados da mesma resposta */
 	const [clientes, setClientes] = useState<ClienteBase[]>([]);
-
-	/* sistemas (do banco) */
 	const [sistemas, setSistemas] = useState<Sistema[]>([]);
 
 	/* ordenação */
@@ -50,7 +146,7 @@ export default function ControleDeSistemaPage() {
 		| keyof Pick<
 				ControleSistema,
 				"sistema" | "qtdLicenca" | "qtdDiaLiberacao" | "status"
-		  >
+		>
 		| "cliente";
 	type SortDir = "asc" | "desc" | null;
 	const [sortKey, setSortKey] = useState<SortKey | null>(null);
@@ -72,58 +168,64 @@ export default function ControleDeSistemaPage() {
 		};
 	}, [editingId]);
 
-	/* carregar dados */
-	async function loadClientes() {
-		try {
-			const resp = await fetch("/api/clientes", { cache: "no-store" });
-			const json = await resp.json();
-
-			if (json?.ok && Array.isArray(json.data)) {
-				setClientes(
-					json.data.map((c: any) => ({
-						id: c.id,
-						nome: c.razaoSocial,
-					}))
-				);
-			}
-		} catch (e) {
-			console.error("Erro ao carregar clientes:", e);
-		}
-	}
-
-	async function loadSistemas() {
-		try {
-			const resp = await fetch("/api/cadastro-sistema", {
-				cache: "no-store",
-			});
-			const json = await resp.json();
-
-			if (Array.isArray(json)) setSistemas(json);
-			else if (json?.data) setSistemas(json.data);
-		} catch (e) {
-			console.error("Erro ao carregar sistemas:", e);
-		}
-	}
-
+	/* ===== carregar TUDO da rota /autenticacao/listaclientes ===== */
 	async function loadRows() {
 		try {
-			const resp = await fetch("/api/controle-sistema", {
-				cache: "no-store",
+			const data = await backendFetch("/autenticacao/listaclientes", {
+				method: "GET",
 			});
-			const json = await resp.json();
 
-			if (json?.ok && Array.isArray(json.data)) {
-				setRows(json.data);
+			console.log(
+				"Resposta bruta /autenticacao/listaclientes (controle-sistema):",
+				data
+			);
+
+			let lista: any[] = [];
+			const anyData: any = data;
+
+			if (Array.isArray(anyData?.listaclientes)) {
+				lista = anyData.listaclientes;
+			} else if (Array.isArray(anyData?.listacliente)) {
+				lista = anyData.listacliente;
+			} else {
+				lista = normalizeList(data);
 			}
+
+			const mappedRows = lista.map(mapControleFromApi);
+			setRows(mappedRows);
+
+			// clientes únicos
+			const mapCli = new Map<number, ClienteBase>();
+			for (const item of lista) {
+				const c = mapClienteFromApi(item);
+				if (c.id && c.nome && !mapCli.has(c.id)) {
+					mapCli.set(c.id, c);
+				}
+			}
+			const clientesArr = Array.from(mapCli.values()).sort((a, b) =>
+				a.nome.localeCompare(b.nome, "pt-BR")
+			);
+			setClientes(clientesArr);
+
+			// sistemas únicos
+			const mapSis = new Map<string, Sistema>();
+			for (const item of lista) {
+				const s = mapSistemaFromApi(item);
+				if (s.nome && !mapSis.has(s.nome)) {
+					mapSis.set(s.nome, s);
+				}
+			}
+			const sistemasArr = Array.from(mapSis.values()).sort((a, b) =>
+				a.nome.localeCompare(b.nome, "pt-BR")
+			);
+			setSistemas(sistemasArr);
 		} catch (e) {
 			console.error("Erro ao carregar controle-sistema:", e);
-			alert("Não foi possível carregar o Controle de Sistema.");
+			alert("Não foi possível carregar o Controle de Sistema do servidor.");
 		}
 	}
 
 	useEffect(() => {
-		loadClientes();
-		loadSistemas();
 		loadRows();
 	}, []);
 
@@ -141,8 +243,8 @@ export default function ControleDeSistemaPage() {
 		} else setSortDir("asc");
 	}
 
-	/* filtragem + ordenação */
-	const filtered = useMemo(() => {
+	/* ===== filtragem + ordenação ===== */
+	const filtered = useMemo<ControleSistema[]>(() => {
 		const q = query.toLowerCase();
 
 		let data = rows.filter((r) =>
@@ -181,16 +283,18 @@ export default function ControleDeSistemaPage() {
 		return data;
 	}, [rows, query, sortKey, sortDir, clientes]);
 
-	const totalPages = Math.max(
-		1,
-		Math.ceil(filtered.length / pageSize)
+	/* ===== paginação (igual clientes) ===== */
+	const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+	const pageData = useMemo(
+		() => filtered.slice((page - 1) * pageSize, page * pageSize),
+		[filtered, page, pageSize]
 	);
-	const pageData = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-	useEffect(
-		() => setPage((p) => Math.min(p, totalPages)),
-		[totalPages]
-	);
+	// se diminuir totalPages (ex: filtro) e a página atual passar do limite,
+	// volta para a última página válida
+	useEffect(() => {
+		setPage((p) => Math.min(p, totalPages));
+	}, [totalPages]);
 
 	/* ações */
 	function handleAdd() {
@@ -240,12 +344,12 @@ export default function ControleDeSistemaPage() {
 			return;
 
 		try {
-			const resp = await fetch(`/api/controle-sistema/${id}`, {
+			await backendFetch(`/controle-sistema/${id}`, {
 				method: "DELETE",
 			});
-			if (!resp.ok) throw new Error();
 			await loadRows();
-		} catch {
+		} catch (e) {
+			console.error("Erro ao excluir registro:", e);
 			alert("Erro ao excluir registro.");
 		}
 	}
@@ -276,15 +380,13 @@ export default function ControleDeSistemaPage() {
 
 		try {
 			if (editingId === 0) {
-				await fetch("/api/controle-sistema", {
+				await backendFetch("/controle-sistema", {
 					method: "POST",
-					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
 			} else {
-				await fetch(`/api/controle-sistema/${editingId}`, {
+				await backendFetch(`/controle-sistema/${editingId}`, {
 					method: "PUT",
-					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
 			}
@@ -292,7 +394,8 @@ export default function ControleDeSistemaPage() {
 			setEditingId(null);
 			setForm({});
 			await loadRows();
-		} catch {
+		} catch (e) {
+			console.error("Erro ao salvar registro:", e);
 			alert("Erro ao salvar registro.");
 		}
 	}
@@ -308,9 +411,9 @@ export default function ControleDeSistemaPage() {
 	/* LISTA MOBILE */
 	const MobileList = () => (
 		<ul className="sm:hidden space-y-3">
-			{pageData.map((r) => (
+			{pageData.map((r, idx) => (
 				<li
-					key={r.id}
+					key={`${page}-${idx}`}
 					className="rounded-xl border bg-white p-4 shadow"
 				>
 					<div className="flex items-start gap-3">
@@ -318,9 +421,7 @@ export default function ControleDeSistemaPage() {
 							<div className="font-medium text-gray-900 break-words">
 								{nomeCliente(r.clienteId)}
 							</div>
-							<div className="text-sm text-gray-500">
-								{r.sistema}
-							</div>
+							<div className="text-sm text-gray-500">{r.sistema}</div>
 						</div>
 						<div className="flex gap-1">
 							<button
@@ -348,8 +449,7 @@ export default function ControleDeSistemaPage() {
 							{r.qtdDiaLiberacao}
 						</div>
 						<div className="col-span-2">
-							<span className="text-gray-500">Status:</span>{" "}
-							{r.status}
+							<span className="text-gray-500">Status:</span> {r.status}
 						</div>
 					</div>
 				</li>
@@ -370,7 +470,7 @@ export default function ControleDeSistemaPage() {
 
 				{/* ÁREA PRINCIPAL */}
 				<div className="flex-1">
-					{/* topo mobile padronizado */}
+					{/* topo mobile */}
 					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b text-center font-semibold text-white">
 						Controle de Sistema
 					</div>
@@ -442,11 +542,11 @@ export default function ControleDeSistemaPage() {
 								<table className="min-w-full border-separate border-spacing-0 text-sm">
 									<thead>
 										<tr className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-											<th className="px-3 py-3 w-28 text-center whitespace-nowrap">
+											<th className="px-3 py-3 w-28 text-left whitespace-nowrap">
 												Ações
 											</th>
 											<th
-												className="px-3 py-3 cursor-pointer text-center whitespace-nowrap"
+												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
 												onClick={() => toggleSort("cliente")}
 											>
 												Cliente{" "}
@@ -457,7 +557,7 @@ export default function ControleDeSistemaPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 cursor-pointer text-center whitespace-nowrap"
+												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
 												onClick={() => toggleSort("sistema")}
 											>
 												Sistema{" "}
@@ -468,7 +568,7 @@ export default function ControleDeSistemaPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 cursor-pointer text-center whitespace-nowrap"
+												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
 												onClick={() => toggleSort("qtdLicenca")}
 											>
 												Qtd Licença{" "}
@@ -479,7 +579,7 @@ export default function ControleDeSistemaPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 cursor-pointer text-center whitespace-nowrap"
+												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
 												onClick={() => toggleSort("qtdDiaLiberacao")}
 											>
 												Qtd Dia Liberação{" "}
@@ -490,7 +590,7 @@ export default function ControleDeSistemaPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 cursor-pointer text-center whitespace-nowrap"
+												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
 												onClick={() => toggleSort("status")}
 											>
 												Status{" "}
@@ -506,15 +606,13 @@ export default function ControleDeSistemaPage() {
 									<tbody className="text-gray-900">
 										{pageData.map((r, idx) => (
 											<tr
-												key={r.id}
+												key={`${page}-${idx}`}
 												className={
-													idx % 2 === 0
-														? "bg-white"
-														: "bg-gray-100"
+													idx % 2 === 0 ? "bg-white" : "bg-gray-100"
 												}
 											>
 												<td className="px-3 py-3">
-													<div className="flex items-center justify-center gap-2">
+													<div className="flex text-left gap-2">
 														<button
 															onClick={() => handleEdit(r.id)}
 															className="w-7 h-7 rounded-xl bg-yellow-400 text-white hover:bg-yellow-500 transition-transform transform hover:scale-110"
@@ -531,25 +629,25 @@ export default function ControleDeSistemaPage() {
 												</td>
 
 												<td
-													className="px-3 py-3 text-center truncate max-w-[18rem]"
+													className="px-3 py-3 text-left truncate max-w-[18rem]"
 													title={nomeCliente(r.clienteId)}
 												>
 													{nomeCliente(r.clienteId)}
 												</td>
 
-												<td className="px-3 py-3 text-center whitespace-nowrap">
+												<td className="px-3 py-3 text-left whitespace-nowrap">
 													{r.sistema}
 												</td>
 
-												<td className="px-3 py-3 text-center whitespace-nowrap">
+												<td className="px-3 py-3 text-left whitespace-nowrap">
 													{r.qtdLicenca}
 												</td>
 
-												<td className="px-3 py-3 text-center whitespace-nowrap">
+												<td className="px-3 py-3 text-left whitespace-nowrap">
 													{r.qtdDiaLiberacao}
 												</td>
 
-												<td className="px-3 py-3 text-center whitespace-nowrap">
+												<td className="px-3 py-3 text-left whitespace-nowrap">
 													{r.status}
 												</td>
 											</tr>
@@ -573,8 +671,7 @@ export default function ControleDeSistemaPage() {
 						{/* paginação */}
 						<div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-black">
 							<div className="text-sm text-gray-700">
-								{filtered.length} registro(s) • Página {page} de{" "}
-								{totalPages}
+								{filtered.length} registro(s) • Página {page} de {totalPages}
 							</div>
 
 							<div className="flex items-center gap-2">
@@ -597,9 +694,7 @@ export default function ControleDeSistemaPage() {
 								<button
 									className="w-9 h-9 rounded-xl bg-white border border-gray-200 text-blue-500 shadow-sm hover:scale-110 transition-transform disabled:opacity-40"
 									onClick={() =>
-										setPage((p) =>
-											Math.min(totalPages, p + 1)
-										)
+										setPage((p) => Math.min(totalPages, p + 1))
 									}
 									disabled={page === totalPages}
 								>
@@ -627,7 +722,9 @@ export default function ControleDeSistemaPage() {
 					<div className="absolute inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-3">
 						<div className="h-full w-full sm:h-auto sm:w-full sm:max-w-2xl bg-white rounded-none sm:rounded-xl shadow-lg overflow-y-auto">
 							<h2 className="sticky top-0 z-10 px-6 py-4 bg-white border-b text-xl font-semibold text-blue-700">
-								{editingId === 0 ? "Adicionar Registro" : "Editar Registro"}
+								{editingId === 0
+									? "Adicionar Registro"
+									: "Editar Registro"}
 							</h2>
 
 							<div className="p-6">
@@ -678,7 +775,9 @@ export default function ControleDeSistemaPage() {
 
 									{/* LICENÇA */}
 									<label className="text-sm">
-										<span className="block mb-1 text-black">Qtd Licença *</span>
+										<span className="block mb-1 text-black">
+											Qtd Licença *
+										</span>
 										<input
 											type="number"
 											min={0}
@@ -785,7 +884,9 @@ export default function ControleDeSistemaPage() {
 
 									{/* OBS */}
 									<label className="text-sm md:col-span-2">
-										<span className="block mb-1 text-black">Observações</span>
+										<span className="block mb-1 text-black">
+											Observações
+										</span>
 										<textarea
 											value={form.observacao ?? ""}
 											onChange={(e) =>
@@ -809,7 +910,10 @@ export default function ControleDeSistemaPage() {
 												"Irregular (Contrato Cancelado)",
 												"Irregular (Com Restrição)",
 											] as StatusContrato[]).map((st) => (
-												<label key={st} className="flex items-center gap-2">
+												<label
+													key={st}
+													className="flex items-center gap-2"
+												>
 													<input
 														type="radio"
 														name="status"
