@@ -63,11 +63,26 @@ export async function backendFetch(
 		...authHeaders,
 	};
 
-	// aqui a mágica: cast explícito pra HeadersInit
 	const resp = await fetch(url, {
 		...options,
 		headers: finalHeaders as HeadersInit,
 	});
+
+	// --- NOVO: trata respostas sem corpo (204/205) ---
+	if (resp.status === 204 || resp.status === 205) {
+		// 204/205 já são "ok", então só retorna null
+		if (!resp.ok) {
+			const err = new Error(`Backend error ${resp.status}: no content`) as Error & {
+				status?: number;
+				data?: any;
+			};
+			err.status = resp.status;
+			err.data = null;
+			throw err;
+		}
+		return null;
+	}
+	// --------------------------------------------------
 
 	const text = await resp.text();
 	let data: any = null;
@@ -75,6 +90,7 @@ export async function backendFetch(
 	try {
 		data = text ? JSON.parse(text) : null;
 	} catch {
+		// se não for JSON, devolve o texto cru mesmo
 		data = text;
 	}
 

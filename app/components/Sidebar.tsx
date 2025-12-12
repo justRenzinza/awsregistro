@@ -1,7 +1,7 @@
 // app/components/Sidebar.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 type SidebarKey =
 	| "clientes"
@@ -54,9 +54,108 @@ const items: { key: SidebarKey; label: string; href: string }[] = [
 	},
 ];
 
-
 export default function Sidebar({ active }: SidebarProps) {
 	const [openMobile, setOpenMobile] = useState(false);
+
+	// ====== CONTROLE DE DRAG DO BOTTOM SHEET (MOBILE) ======
+	const [dragOffset, setDragOffset] = useState(0); // quanto já desceu em px
+	const [isDragging, setIsDragging] = useState(false);
+
+	const dragStartYRef = useRef<number | null>(null);
+	const dragStartTimeRef = useRef<number | null>(null);
+	const lastYRef = useRef<number | null>(null);
+	const lastTimeRef = useRef<number | null>(null);
+	const velocityRef = useRef<number>(0); // px/ms
+
+	const MAX_DRAG = 300; // limite máximo que o sheet pode descer
+	const CLOSE_THRESHOLD = 120; // deslocamento mínimo pra fechar
+	const VELOCITY_THRESHOLD = 0.9; // velocidade mínima (px/ms) pra fechar num swipe rápido
+
+	function getClientY(e: any): number {
+		if (e.touches && e.touches[0]) return e.touches[0].clientY;
+		return e.clientY ?? 0;
+	}
+
+	const handleDragStart = (e: any) => {
+		e.preventDefault();
+		setIsDragging(true);
+
+		const y = getClientY(e);
+		const now = performance.now ? performance.now() : Date.now();
+
+		dragStartYRef.current = y;
+		dragStartTimeRef.current = now;
+		lastYRef.current = y;
+		lastTimeRef.current = now;
+		velocityRef.current = 0;
+	};
+
+	const handleDragMove = (e: any) => {
+		if (!isDragging || dragStartYRef.current === null) return;
+
+		const currentY = getClientY(e);
+		const delta = currentY - dragStartYRef.current;
+
+		// se arrastar pra cima, não sobe mais que 0
+		if (delta <= 0) {
+			setDragOffset(0);
+			return;
+		}
+
+		const limitado = Math.min(delta, MAX_DRAG);
+		setDragOffset(limitado);
+
+		// calcula velocidade
+		const now = performance.now ? performance.now() : Date.now();
+		if (lastYRef.current !== null && lastTimeRef.current !== null) {
+			const dy = currentY - lastYRef.current;
+			const dt = now - lastTimeRef.current;
+			if (dt > 0) {
+				velocityRef.current = dy / dt; // px/ms
+			}
+		}
+		lastYRef.current = currentY;
+		lastTimeRef.current = now;
+	};
+
+	const handleDragEnd = () => {
+		if (!isDragging) return;
+
+		const speed = Math.abs(velocityRef.current); // px/ms
+
+		const shouldClose =
+			dragOffset > CLOSE_THRESHOLD || speed > VELOCITY_THRESHOLD;
+
+		if (shouldClose) {
+			setOpenMobile(false);
+		}
+
+		// reseta o offset/estado (se não fechar, ele volta suavemente)
+		setIsDragging(false);
+		setDragOffset(0);
+		dragStartYRef.current = null;
+		dragStartTimeRef.current = null;
+		lastYRef.current = null;
+		lastTimeRef.current = null;
+		velocityRef.current = 0;
+	};
+
+	/* ===== impedir scroll do fundo quando menu mobile aberto ===== */
+	useEffect(() => {
+		if (openMobile) {
+			// bloqueia rolagem vertical e horizontal da página atrás
+			document.body.style.overflow = "hidden";
+			document.body.style.position = "relative";
+		} else {
+			document.body.style.overflow = "";
+			document.body.style.position = "";
+		}
+
+		return () => {
+			document.body.style.overflow = "";
+			document.body.style.position = "";
+		};
+	}, [openMobile]);
 
 	return (
 		<>
@@ -98,7 +197,10 @@ export default function Sidebar({ active }: SidebarProps) {
 			{/* BOTÃO DO MENU (MOBILE) – lado ESQUERDO, contido na barra azul */}
 			<button
 				type="button"
-				onClick={() => setOpenMobile(true)}
+				onClick={() => {
+					setOpenMobile(true);
+					setDragOffset(0);
+				}}
 				className="fixed top-1.5 left-4 z-40 flex h-9 w-9 items-center justify-center rounded-full bg-white text-blue-600 text-lg shadow-xl sm:hidden active:scale-95 transition-transform"
 				aria-label="Abrir menu"
 			>
@@ -118,10 +220,26 @@ export default function Sidebar({ active }: SidebarProps) {
 
 					{/* sheet */}
 					<div
-						className="absolute inset-x-0 bottom-0 rounded-t-2xl bg-white shadow-xl pb-4 pt-3"
+						className="absolute inset-x-0 bottom-0 rounded-t-2xl bg-white shadow-xl pb-4 pt-3 overscroll-y-contain"
 						onClick={(e) => e.stopPropagation()}
+						onTouchMove={handleDragMove}
+						onTouchEnd={handleDragEnd}
+						onTouchCancel={handleDragEnd}
+						onMouseMove={handleDragMove}
+						onMouseUp={handleDragEnd}
+						onMouseLeave={handleDragEnd}
+						style={{
+							transform: `translateY(${dragOffset}px)`,
+							transition: isDragging ? "none" : "transform 0.18s ease-out",
+							touchAction: "none",
+						}}
 					>
-						<div className="mx-auto mb-2 h-1.5 w-12 rounded-full bg-gray-300" />
+						{/* handle que realmente arrasta */}
+						<div
+							className="mx-auto mb-2 h-1.5 w-12 rounded-full bg-gray-300 cursor-pointer active:bg-gray-400"
+							onTouchStart={handleDragStart}
+							onMouseDown={handleDragStart}
+						/>
 
 						<div className="px-4 pb-2">
 							<div className="text-sm font-semibold text-gray-800">
@@ -129,7 +247,7 @@ export default function Sidebar({ active }: SidebarProps) {
 							</div>
 						</div>
 
-						<nav className="px-3">
+						<nav className="px-3 max-h-[60vh] overflow-y-auto overscroll-y-contain">
 							{items.map((item) => {
 								const isActive = item.key === active;
 								const base =

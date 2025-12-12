@@ -6,7 +6,12 @@ import Sidebar from "@/app/components/Sidebar";
 import { backendFetch } from "@/lib/backend";
 
 /* ------------ tipos básicos ----------- */
-type ClienteBase = { id: number; nome: string };
+type ClienteBase = {
+	id: number;
+	nome: string;
+	idStatus?: number;
+	status?: string | null;
+};
 
 type Sistema = {
 	id: number;
@@ -22,10 +27,12 @@ type StatusContrato =
 type ControleSistema = {
 	id: number;
 	clienteId: number;
+	idSistema: number;
 	sistema: string;
 	qtdLicenca: number;
 	qtdDiaLiberacao: number;
 	status: StatusContrato | string;
+	idStatus?: number;
 	qtdBanco?: number;
 	qtdCnpj?: number;
 	ipMblock?: string | null;
@@ -62,30 +69,43 @@ function normalizeList(data: any): any[] {
 function mapClienteFromApi(row: any): ClienteBase {
 	const base = row.cliente ?? row;
 
+	const id = Number(
+		base.id ?? base.idCliente ?? base.codigo ?? row.idCliente ?? 0
+	);
+
+	const nome =
+		base.nome ??
+		base.razaoSocial ??
+		base.razao_social ??
+		base.nomeCliente ??
+		"";
+
+	const idStatus =
+		base.idStatus ??
+		base.id_status ??
+		(base.status === "Irregular (Contrato Cancelado)" ? 3 : undefined);
+
+	const status = base.status ?? base.descricaoStatus ?? null;
+
 	return {
-		id: Number(
-			base.id ?? base.idCliente ?? base.codigo ?? row.idCliente ?? 0
-		),
-		nome:
-			base.nome ??
-			base.razaoSocial ??
-			base.razao_social ??
-			base.nomeCliente ??
-			"",
+		id,
+		nome,
+		idStatus,
+		status,
 	};
 }
 
 function mapSistemaFromApi(row: any): Sistema {
 	const nome =
+		row.nome ??
 		row.sistema ??
 		row.nomeSistema ??
 		row.sistemaNome ??
 		row.descricao ??
-		row.nome ??
 		"";
 
 	const id =
-		Number(row.idSistema ?? row.sistemaId ?? row.id ?? 0) || nome.length;
+		Number(row.id ?? row.idSistema ?? row.sistemaId ?? 0) || nome.length;
 
 	return {
 		id,
@@ -93,40 +113,24 @@ function mapSistemaFromApi(row: any): Sistema {
 	};
 }
 
-function mapControleFromApi(row: any): ControleSistema {
-	const clienteBase = row.cliente ?? row;
-
+function mapControleFromClienteSistema(row: any): ControleSistema {
 	return {
-		id: Number(row.id ?? row.idControle ?? row.codigo ?? 0),
-		clienteId: Number(
-			clienteBase.id ?? clienteBase.idCliente ?? row.clienteId ?? 0
-		),
-		sistema:
-			row.sistema ??
-			row.nomeSistema ??
-			row.sistemaNome ??
-			row.nome ??
-			"",
-		qtdLicenca: Number(
-			row.qtdLicenca ??
-				row.qtd_licenca ??
-				row.quantidadeLicenca ??
-				row.quantidade_licenca ??
-				0
-		),
-		qtdDiaLiberacao: Number(
-			row.qtdDiaLiberacao ?? row.qtd_dia_liberacao ?? row.qtdDiaLib ?? 0
-		),
-		status:
-			row.status ??
-			row.statusContrato ??
-			row.situacao ??
-			("Regular" as StatusContrato),
-		qtdBanco: Number(row.qtdBanco ?? row.qtd_banco ?? 0),
-		qtdCnpj: Number(row.qtdCnpj ?? row.qtd_cnpj ?? 0),
-		ipMblock: row.ipMblock ?? row.ip ?? null,
-		portaMblock: row.portaMblock ?? row.porta ?? null,
-		observacao: row.observacao ?? row.obs ?? row.observacoes ?? null,
+		id: Number(row.id ?? 0),
+		clienteId: Number(row.idCliente ?? 0),
+		idSistema: Number(row.idSistema ?? 0),
+		sistema: "", // o nome será preenchido usando /sistema
+		qtdLicenca: Number(row.quantidadeLicenca ?? 0),
+		qtdDiaLiberacao: Number(row.quantidadeDiaLiberacao ?? 0),
+		status: row.status ?? ("Regular" as StatusContrato),
+		idStatus: Number(row.idStatus ?? 0) || undefined,
+		qtdBanco: Number(row.quantidadeBancoDados ?? 0),
+		qtdCnpj: Number(row.quantidadeCnpj ?? 0),
+		ipMblock: row.ipMblock ?? null,
+		portaMblock:
+			row.portaMblock !== undefined && row.portaMblock !== null
+				? String(row.portaMblock)
+				: null,
+		observacao: row.observacaoStatus ?? row.observacao ?? null,
 	};
 }
 
@@ -137,7 +141,7 @@ export default function ControleDeSistemaPage() {
 	const [pageSize] = useState(10);
 	const [rows, setRows] = useState<ControleSistema[]>([]);
 
-	/* clientes e sistemas derivados da mesma resposta */
+	/* clientes e sistemas */
 	const [clientes, setClientes] = useState<ClienteBase[]>([]);
 	const [sistemas, setSistemas] = useState<Sistema[]>([]);
 
@@ -146,11 +150,11 @@ export default function ControleDeSistemaPage() {
 		| keyof Pick<
 				ControleSistema,
 				"sistema" | "qtdLicenca" | "qtdDiaLiberacao" | "status"
-		>
+		  >
 		| "cliente";
 	type SortDir = "asc" | "desc" | null;
 	const [sortKey, setSortKey] = useState<SortKey | null>(null);
-	const [sortDir, setSortDir] = useState<SortDir>(null);
+	const [sortDir, setSortDir] = useState<SortDir | null>(null);
 
 	/* popup */
 	const [editingId, setEditingId] = useState<number | null>(null);
@@ -168,60 +172,131 @@ export default function ControleDeSistemaPage() {
 		};
 	}, [editingId]);
 
-	/* ===== carregar TUDO da rota /autenticacao/listaclientes ===== */
+	/* ===== carregar CLIENTES + SISTEMAS + CLIENTESISTEMA ===== */
 	async function loadRows() {
+		// mapa clienteId -> { idStatus, status } vindo da listaclientes
+		const clienteStatusMap = new Map<
+			number,
+			{ idStatus?: number; status?: string | null }
+		>();
+
+		let clientesArr: ClienteBase[] = [];
+		let sistemasArr: Sistema[] = [];
+
+		// --- CLIENTES (nomes + status) ---
 		try {
-			const data = await backendFetch("/autenticacao/listaclientes", {
+			const clientesResp = await backendFetch("/autenticacao/listaclientes", {
 				method: "GET",
 			});
 
 			console.log(
 				"Resposta bruta /autenticacao/listaclientes (controle-sistema):",
-				data
+				clientesResp
 			);
 
-			let lista: any[] = [];
-			const anyData: any = data;
+			let listaClientes: any[] = [];
+			const anyClientes: any = clientesResp;
 
-			if (Array.isArray(anyData?.listaclientes)) {
-				lista = anyData.listaclientes;
-			} else if (Array.isArray(anyData?.listacliente)) {
-				lista = anyData.listacliente;
+			if (Array.isArray(anyClientes?.listaclientes)) {
+				listaClientes = anyClientes.listaclientes;
+			} else if (Array.isArray(anyClientes?.listacliente)) {
+				listaClientes = anyClientes.listacliente;
 			} else {
-				lista = normalizeList(data);
+				listaClientes = normalizeList(clientesResp);
 			}
 
-			const mappedRows = lista.map(mapControleFromApi);
-			setRows(mappedRows);
-
-			// clientes únicos
 			const mapCli = new Map<number, ClienteBase>();
-			for (const item of lista) {
+			for (const item of listaClientes) {
 				const c = mapClienteFromApi(item);
 				if (c.id && c.nome && !mapCli.has(c.id)) {
 					mapCli.set(c.id, c);
 				}
 			}
-			const clientesArr = Array.from(mapCli.values()).sort((a, b) =>
+			clientesArr = Array.from(mapCli.values()).sort((a, b) =>
 				a.nome.localeCompare(b.nome, "pt-BR")
 			);
 			setClientes(clientesArr);
 
-			// sistemas únicos
-			const mapSis = new Map<string, Sistema>();
-			for (const item of lista) {
-				const s = mapSistemaFromApi(item);
-				if (s.nome && !mapSis.has(s.nome)) {
-					mapSis.set(s.nome, s);
-				}
+			// monta mapa de status por cliente
+			for (const c of clientesArr) {
+				clienteStatusMap.set(c.id, {
+					idStatus: c.idStatus,
+					status: c.status,
+				});
 			}
-			const sistemasArr = Array.from(mapSis.values()).sort((a, b) =>
-				a.nome.localeCompare(b.nome, "pt-BR")
-			);
+		} catch (e) {
+			console.error("Erro ao carregar /autenticacao/listaclientes:", e);
+			alert("Não foi possível carregar a lista de clientes do servidor.");
+		}
+
+		// --- SISTEMAS ---
+		try {
+			const sistemasResp = await backendFetch("/sistema", { method: "GET" });
+
+			console.log("Resposta /sistema (controle-sistema):", sistemasResp);
+
+			const sisLista = normalizeList(sistemasResp);
+			sistemasArr = sisLista
+				.map(mapSistemaFromApi)
+				.filter((s: Sistema) => s.nome)
+				.sort((a: Sistema, b: Sistema) =>
+					a.nome.localeCompare(b.nome, "pt-BR")
+				);
+
 			setSistemas(sistemasArr);
 		} catch (e) {
-			console.error("Erro ao carregar controle-sistema:", e);
-			alert("Não foi possível carregar o Controle de Sistema do servidor.");
+			console.error("Erro ao carregar /sistema:", e);
+			alert("Não foi possível carregar a lista de sistemas do servidor.");
+		}
+
+		// --- CLIENTE/SISTEMA ---
+		try {
+			const clienteSistemaResp = await backendFetch("/clientesistema", {
+				method: "GET",
+			});
+
+			console.log("Resposta /clientesistema (controle-sistema):", clienteSistemaResp);
+
+			const csLista = normalizeList(clienteSistemaResp);
+
+			const sistemaMap = new Map<number, string>();
+			for (const s of sistemasArr) {
+				sistemaMap.set(s.id, s.nome);
+			}
+
+			const mappedRows = csLista.map((row: any) => {
+				const base = mapControleFromClienteSistema(row);
+				const cliStatus = clienteStatusMap.get(base.clienteId);
+
+				const finalStatus =
+					cliStatus?.status ??
+					(cliStatus?.idStatus === 3
+						? "Irregular (Contrato Cancelado)"
+						: base.status);
+
+				return {
+					...base,
+					sistema: sistemaMap.get(base.idSistema) ?? "",
+					status: finalStatus,
+					idStatus: cliStatus?.idStatus ?? base.idStatus,
+				};
+			});
+
+			setRows(mappedRows);
+		} catch (e) {
+			const err = e as any;
+			console.error("Erro ao carregar /clientesistema:", err);
+
+			const status = err?.status;
+			const data = err?.data;
+
+			alert(
+				"Erro ao carregar o Controle de Sistema.\n\n" +
+					(status ? `Status: ${status}\n` : "") +
+					(data ? `Resposta do servidor: ${JSON.stringify(data)}` : "")
+			);
+
+			setRows([]);
 		}
 	}
 
@@ -283,15 +358,13 @@ export default function ControleDeSistemaPage() {
 		return data;
 	}, [rows, query, sortKey, sortDir, clientes]);
 
-	/* ===== paginação (igual clientes) ===== */
+	/* ===== paginação ===== */
 	const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
 	const pageData = useMemo(
 		() => filtered.slice((page - 1) * pageSize, page * pageSize),
 		[filtered, page, pageSize]
 	);
 
-	// se diminuir totalPages (ex: filtro) e a página atual passar do limite,
-	// volta para a última página válida
 	useEffect(() => {
 		setPage((p) => Math.min(p, totalPages));
 	}, [totalPages]);
@@ -338,20 +411,13 @@ export default function ControleDeSistemaPage() {
 			!window.confirm(
 				`Excluir registro do cliente "${nomeCliente(
 					alvo?.clienteId ?? 0
-				)}"?`
+				)}"? (apenas na tela, ainda sem deletar no backend)`
 			)
 		)
 			return;
 
-		try {
-			await backendFetch(`/controle-sistema/${id}`, {
-				method: "DELETE",
-			});
-			await loadRows();
-		} catch (e) {
-			console.error("Erro ao excluir registro:", e);
-			alert("Erro ao excluir registro.");
-		}
+		// Por enquanto só removemos da UI.
+		setRows((prev) => prev.filter((r) => r.id !== id));
 	}
 
 	function handleCancel() {
@@ -365,39 +431,34 @@ export default function ControleDeSistemaPage() {
 			return;
 		}
 
-		const payload = {
-			clienteId: form.clienteId!,
-			sistema: form.sistema!,
-			qtdLicenca: Number(form.qtdLicenca ?? 0),
-			qtdDiaLiberacao: Number(form.qtdDiaLiberacao ?? 0),
-			qtdBanco: Number(form.qtdBanco ?? 0),
-			qtdCnpj: Number(form.qtdCnpj ?? 0),
-			ipMblock: form.ipMblock ?? "",
-			portaMblock: form.portaMblock ?? "",
-			observacao: form.observacao ?? "",
-			status: (form.status ?? "Regular") as StatusContrato,
-		};
+		// Ainda não estamos persistindo em /clientesistema.
+		// Atualiza apenas localmente.
+		setRows((prev) =>
+			prev.map((r) =>
+				r.id === editingId
+					? {
+							...r,
+							clienteId: form.clienteId ?? r.clienteId,
+							sistema: form.sistema ?? r.sistema,
+							qtdLicenca: Number(form.qtdLicenca ?? r.qtdLicenca),
+							qtdDiaLiberacao: Number(
+								form.qtdDiaLiberacao ?? r.qtdDiaLiberacao
+							),
+							qtdBanco: Number(form.qtdBanco ?? r.qtdBanco ?? 0),
+							qtdCnpj: Number(form.qtdCnpj ?? r.qtdCnpj ?? 0),
+							ipMblock: form.ipMblock ?? r.ipMblock ?? "",
+							portaMblock: form.portaMblock ?? r.portaMblock ?? "",
+							observacao: form.observacao ?? r.observacao ?? "",
+							status: (form.status ??
+								r.status ??
+								"Regular") as StatusContrato,
+					  }
+					: r
+			)
+		);
 
-		try {
-			if (editingId === 0) {
-				await backendFetch("/controle-sistema", {
-					method: "POST",
-					body: JSON.stringify(payload),
-				});
-			} else {
-				await backendFetch(`/controle-sistema/${editingId}`, {
-					method: "PUT",
-					body: JSON.stringify(payload),
-				});
-			}
-
-			setEditingId(null);
-			setForm({});
-			await loadRows();
-		} catch (e) {
-			console.error("Erro ao salvar registro:", e);
-			alert("Erro ao salvar registro.");
-		}
+		setEditingId(null);
+		setForm({});
 	}
 
 	function handleExport() {
@@ -731,7 +792,9 @@ export default function ControleDeSistemaPage() {
 								<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 									{/* CLIENTE */}
 									<label className="text-sm md:col-span-2">
-										<span className="block mb-1 text-black">Cliente *</span>
+										<span className="block mb-1 text-black">
+											Cliente *
+										</span>
 										<select
 											value={form.clienteId ?? ""}
 											onChange={(e) =>
@@ -753,7 +816,9 @@ export default function ControleDeSistemaPage() {
 
 									{/* SISTEMA */}
 									<label className="text-sm md:col-span-2">
-										<span className="block mb-1 text-black">Sistema *</span>
+										<span className="block mb-1 text-black">
+											Sistema *
+										</span>
 										<select
 											value={form.sistema ?? ""}
 											onChange={(e) =>
@@ -804,7 +869,9 @@ export default function ControleDeSistemaPage() {
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
-													qtdDiaLiberacao: Number(e.target.value),
+													qtdDiaLiberacao: Number(
+														e.target.value
+													),
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
@@ -832,7 +899,9 @@ export default function ControleDeSistemaPage() {
 
 									{/* QTD CNPJ */}
 									<label className="text-sm">
-										<span className="block mb-1 text-black">Qtd CNPJ</span>
+										<span className="block mb-1 text-black">
+											Qtd CNPJ
+										</span>
 										<input
 											type="number"
 											min={0}
@@ -851,7 +920,9 @@ export default function ControleDeSistemaPage() {
 									{(form.sistema ?? "").toUpperCase() === "MBLOCK" && (
 										<>
 											<label className="text-sm">
-												<span className="block mb-1 text-black">IP</span>
+												<span className="block mb-1 text-black">
+													IP
+												</span>
 												<input
 													type="text"
 													value={form.ipMblock ?? ""}
@@ -866,7 +937,9 @@ export default function ControleDeSistemaPage() {
 											</label>
 
 											<label className="text-sm">
-												<span className="block mb-1 text-black">Porta</span>
+												<span className="block mb-1 text-black">
+													Porta
+												</span>
 												<input
 													type="text"
 													value={form.portaMblock ?? ""}
@@ -901,7 +974,9 @@ export default function ControleDeSistemaPage() {
 
 									{/* STATUS */}
 									<label className="text-sm md:col-span-2">
-										<span className="block mb-1 text-black">Status *</span>
+										<span className="block mb-1 text-black">
+											Status *
+										</span>
 
 										<div className="space-y-2 text-black">
 											{([
@@ -917,7 +992,8 @@ export default function ControleDeSistemaPage() {
 													<input
 														type="radio"
 														name="status"
-														checked={(form.status ?? "Regular") === st}
+														checked={(form.status ??
+															"Regular") === st}
 														onChange={() =>
 															setForm((prev) => ({
 																...prev,

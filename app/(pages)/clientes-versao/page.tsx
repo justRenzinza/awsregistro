@@ -22,25 +22,33 @@ type SortKey =
 	| "versao_anterior";
 type SortDir = "asc" | "desc" | null;
 
-/* ========= mapeamento da API ========= */
-/* Mesma ideia do atualizar-clientes, mas trazendo só o que precisamos aqui */
-function mapRowFromApi(row: any): LinhaClienteVersao {
-	const versaoAtual =
-		row.versaoAtual ??
-		row.versao_atual ??
-		row.versaoSistemaAtual ??
-		row.versao_sistema_atual ??
-		row.versao ??
-		null;
+/* ========= helpers ========= */
+function normalizeVersion(v: any): string | null {
+	if (!v) return null;
+	const s = String(v).trim();
+	if (!s) return null;
+	if (s.toLowerCase() === "string") return null; // lixo do backend
+	return s;
+}
 
-	const versaoAnterior =
+/* ========= mapeamento da API ========= */
+function mapRowFromApi(row: any): LinhaClienteVersao {
+	const versaoAtual = normalizeVersion(
+		row.versaoAtual ??
+			row.versao_atual ??
+			row.versaoSistemaAtual ??
+			row.versao_sistema_atual ??
+			row.versao
+	);
+
+	const versaoAnterior = normalizeVersion(
 		row.versaoAnterior ??
-		row.versao_anterior ??
-		row.versaoSistemaAnterior ??
-		row.versao_sistema_anterior ??
-		row.versaoOld ??
-		row.versao_antiga ??
-		null;
+			row.versao_anterior ??
+			row.versaoSistemaAnterior ??
+			row.versao_sistema_anterior ??
+			row.versaoOld ??
+			row.versao_antiga
+	);
 
 	return {
 		id: Number(row.codigo ?? row.idCliente ?? row.id ?? 0),
@@ -76,12 +84,14 @@ export default function ClientesVersaoPage() {
 				method: "GET",
 			});
 
-			console.log("Resposta /autenticacao/listaclientes (ClientesVersao):", data);
+			console.log(
+				"Resposta /autenticacao/listaclientes (ClientesVersao):",
+				data
+			);
 
 			let lista: any[] = [];
 			const anyData: any = data;
 
-			// tenta encontrar o array certo, igual fizemos no atualizar-clientes
 			if (Array.isArray(anyData?.listaclientes)) {
 				lista = anyData.listaclientes;
 			} else if (Array.isArray(anyData?.listacliente)) {
@@ -105,8 +115,40 @@ export default function ClientesVersaoPage() {
 				}
 			}
 
+			// mapeia
 			const mapped = lista.map((row) => mapRowFromApi(row));
-			setRows(mapped);
+
+			// consolida por cliente + sistema
+			const map = new Map<string, LinhaClienteVersao>();
+
+			for (const r of mapped) {
+				const key = `${r.id}|${r.nome_cliente.toLowerCase()}|${r.nome_sistema.toLowerCase()}`;
+
+				const existing = map.get(key);
+				if (!existing) {
+					map.set(key, { ...r });
+				} else {
+					const merged: LinhaClienteVersao = { ...existing };
+
+					// se o registro novo tiver versão atual válida e o antigo não, atualiza
+					if (!normalizeVersion(merged.versao_atual) && r.versao_atual) {
+						merged.versao_atual = r.versao_atual;
+					}
+
+					// mesma lógica para versão anterior
+					if (
+						!normalizeVersion(merged.versao_anterior) &&
+						r.versao_anterior
+					) {
+						merged.versao_anterior = r.versao_anterior;
+					}
+
+					map.set(key, merged);
+				}
+			}
+
+			const finalRows = Array.from(map.values());
+			setRows(finalRows);
 		} catch (e) {
 			console.error("Erro ao carregar Clientes por Versão:", e);
 			alert("Erro ao carregar Clientes por Versão.");
@@ -188,9 +230,9 @@ export default function ClientesVersaoPage() {
 					Nenhum registro encontrado.
 				</li>
 			) : (
-				pageData.map((r) => (
+				pageData.map((r, idx) => (
 					<li
-						key={`${r.id}-${r.nome_sistema}`}
+						key={`${r.id}-${r.nome_sistema}-${idx}`}
 						className="rounded-xl border bg-white p-4 shadow text-gray-800"
 					>
 						<div className="text-xs text-gray-500 mb-1">Código {r.id}</div>
@@ -222,7 +264,9 @@ export default function ClientesVersaoPage() {
 				<div className="flex-1">
 					{/* topo mobile apenas com título */}
 					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b flex items-center justify-center">
-						<div className="font-semibold text-white">Clientes por Versão</div>
+						<div className="font-semibold text-white">
+							Clientes por Versão
+						</div>
 					</div>
 
 					<main className="p-4 md:p-6 mx-auto max-w-7xl">
@@ -328,7 +372,7 @@ export default function ClientesVersaoPage() {
 									) : (
 										pageData.map((r, idx) => (
 											<tr
-												key={`${r.id}-${r.nome_sistema}`}
+												key={`${r.id}-${r.nome_sistema}-${idx}`}
 												className={
 													idx % 2 === 0 ? "bg-white" : "bg-gray-100"
 												}

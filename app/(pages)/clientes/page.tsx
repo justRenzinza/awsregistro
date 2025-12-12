@@ -558,7 +558,7 @@ export default function ClientesPage() {
 				<div className="flex-1">
 					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b flex items-center justify-center">
 						<div className="font-semibold text-white">
-							AWSRegistro | Clientes
+							Clientes
 						</div>
 					</div>
 

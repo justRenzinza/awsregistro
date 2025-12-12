@@ -12,23 +12,34 @@ type SistemaOption = {
 };
 
 type ClienteVersaoRow = {
+	// chaves principais
+	id: number;
 	idCliente: number;
 	idSistema: number;
+
+	// para exibir
 	codigo: number;
 	cliente: string;
 	sistema: string;
+
+	// controle de versão
 	versaoAtual: string | null;
 	versaoAnterior: string | null;
+	dataAtualizacao: string | null;
 
-	cnpj: string;
-	dataRegistro: string;
-	nomeContato: string;
-	telefone: string;
-	email: string;
-	quantidadeLicenca?: number;
-	quantidadeDiaLiberacao?: number;
-	idStatus?: number;
-	status?: string | null;
+	// campos extras do /clientesistema
+	nomeBruto: string;
+	observacao?: string | null;
+	quantidadeLicenca: number;
+	quantidadeDiaLiberacao: number;
+	idStatus: number;
+	status: string | null;
+	observacaoStatus?: string | null;
+	passoAtualizacao: number;
+	quantidadeBancoDados: number;
+	quantidadeCnpj: number;
+	portaMblock: number;
+	ipMblock: string | null;
 };
 
 /* ========= helpers ========= */
@@ -46,7 +57,8 @@ function toISOFromInputDate(d: string | null | undefined) {
 	return d.split("T")[0];
 }
 
-/* ========= mapeamento da API ========= */
+/* ========= mapeamento da API /clientesistema ========= */
+
 function mapRowFromApi(row: any): ClienteVersaoRow {
 	const versaoAtual =
 		row.versaoAtual ??
@@ -65,40 +77,58 @@ function mapRowFromApi(row: any): ClienteVersaoRow {
 		row.versao_antiga ??
 		null;
 
+	const idCliente = Number(row.idCliente ?? row.id_cliente ?? row.codigo ?? 0);
+	const idSistema = Number(row.idSistema ?? row.id_sistema ?? 0);
+
+	const clienteNome =
+		row.cliente ??
+		row.nomeCliente ??
+		row.nome_cliente ??
+		row.nomeClienteSistema ??
+		row.nomeClienteSacex ??
+		row.razaoSocial ??
+		row.nome ??
+		"";
+
+	const sistemaNome =
+		row.sistema ??
+		row.nomeSistema ??
+		row.nome_sistema ??
+		row.sistemaNome ??
+		"";
+
 	return {
-		idCliente: Number(row.idCliente ?? row.id ?? row.codigo ?? 0),
-		idSistema: Number(row.idSistema ?? row.id_sistema ?? 0),
-		codigo: Number(row.codigo ?? row.idCliente ?? row.id ?? 0),
-		cliente:
-			row.razaoSocial ??
-			row.nome ??
-			row.nomeCliente ??
-			row.cliente ??
-			"",
-		sistema: row.sistema ?? row.nomeSistema ?? row.nome_sistema ?? "",
+		id: Number(row.id ?? 0),
+		idCliente,
+		idSistema,
+		codigo: Number(row.codigo ?? idCliente ?? row.id ?? 0),
+		cliente: clienteNome,
+		sistema: sistemaNome,
 		versaoAtual,
 		versaoAnterior,
-		cnpj: row.cnpj ?? row.cnpjCpf ?? row.cnpj_cpf ?? "",
-		dataRegistro: formatBRDateFromISO(
-			row.dataRegistro ?? row.data_registro ?? row.datCadastro ?? row.data
+		dataAtualizacao:
+			row.dataAtualizacao ?? row.data_atualizacao ?? row.dataVersao ?? null,
+		nomeBruto: row.nome ?? clienteNome,
+		observacao: row.observacao ?? null,
+		quantidadeLicenca: Number(
+			row.quantidadeLicenca ?? row.qtdLicenca ?? row.qtd_licenca ?? 0
 		),
-		nomeContato: row.nomeContato ?? row.contato ?? row.responsavel ?? "",
-		telefone: row.telefone ?? row.telefoneContato ?? row.celular ?? "",
-		email: row.email ?? row.emailContato ?? "",
-		quantidadeLicenca: row.quantidadeLicenca ?? row.qtdLicenca ?? 0,
-		quantidadeDiaLiberacao:
-			row.quantidadeDiaLiberacao ?? row.qtdDiaLiberacao ?? 0,
-		idStatus: row.idStatus ?? row.id_status ?? 1,
-		status: row.status ?? row.descricaoStatus ?? "",
+		quantidadeDiaLiberacao: Number(
+			row.quantidadeDiaLiberacao ??
+				row.qtdDiaLiberacao ??
+				row.qtd_dia_liberacao ??
+				0
+		),
+		idStatus: Number(row.idStatus ?? row.id_status ?? 0),
+		status: row.status ?? row.descricaoStatus ?? null,
+		observacaoStatus: row.observacaoStatus ?? null,
+		passoAtualizacao: Number(row.passoAtualizacao ?? 0),
+		quantidadeBancoDados: Number(row.quantidadeBancoDados ?? 0),
+		quantidadeCnpj: Number(row.quantidadeCnpj ?? 0),
+		portaMblock: Number(row.portaMblock ?? 0),
+		ipMblock: row.ipMblock ?? null,
 	};
 }
-
-/* ========= opções de sistema ========= */
-/* Corrigido: 2 = SACEX, 1 = SAGRAM */
-const sistemasMock: SistemaOption[] = [
-	{ id: 2, nome: "SACEX" },
-	{ id: 1, nome: "SAGRAM" },
-];
 
 /* ========= ordenação ========= */
 
@@ -118,18 +148,19 @@ export default function AtualizarClientesPorVersaoPage() {
 	const [sortKey, setSortKey] = useState<SortKey | null>(null);
 	const [sortDir, setSortDir] = useState<SortDir>(null);
 
+	const [sistemas, setSistemas] = useState<SistemaOption[]>([]);
 	const [sistemaSelecionado, setSistemaSelecionado] = useState<
 		SistemaOption | undefined
-	>(sistemasMock[0]); // default SACEX
+	>(undefined);
+
 	const [novaVersao, setNovaVersao] = useState("2025.1.15.30");
 	const [dataVersao, setDataVersao] = useState(""); // yyyy-mm-dd
 
-	// seleção por chave única "idCliente-idSistema"
 	const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
 	const [isLoading, setIsLoading] = useState(false);
 	const [isUpdating, setIsUpdating] = useState(false);
 
-	/* ====== helpers de seleção ====== */
+	/* ===== helpers seleção ===== */
 
 	function rowKey(r: ClienteVersaoRow) {
 		return `${r.idCliente}-${r.idSistema}`;
@@ -146,41 +177,30 @@ export default function AtualizarClientesPorVersaoPage() {
 		);
 	}
 
-	/* ====== carregar clientes ====== */
-	async function loadRows() {
-		if (!sistemaSelecionado) {
-			setRows([]);
-			return;
-		}
+	/* ===== carregar sistemas (CORRIGIDO) ===== */
 
+	async function loadSistemas() {
 		try {
-			setIsLoading(true);
-
-			const data = await backendFetch("/autenticacao/listaclientes", {
+			console.log("🔍 Tentando carregar /sistema...");
+			
+			const data = await backendFetch("/sistema", {
 				method: "GET",
 			});
 
-			console.log(
-				"Resposta bruta /autenticacao/listaclientes (para debug de versão):",
-				data
-			);
+			console.log("📊 Resposta completa de /sistema:", data);
+			console.log("📊 Tipo da resposta:", typeof data);
+			console.log("📊 É array?", Array.isArray(data));
+			console.log("📊 Quantidade de itens:", Array.isArray(data) ? data.length : "não é array");
 
 			let lista: any[] = [];
-
-			const anyData: any = data;
-			if (Array.isArray(anyData?.listaclientes)) {
-				lista = anyData.listaclientes;
-			} else if (Array.isArray(anyData?.listacliente)) {
-				lista = anyData.listacliente;
-			} else if (Array.isArray(data)) {
+			if (Array.isArray(data)) {
 				lista = data;
 			} else if (data && typeof data === "object") {
 				const d: any = data;
-
+				// A resposta vem como {data: [...], records: 7}
 				if (Array.isArray(d.data)) lista = d.data;
+				else if (Array.isArray(d.sistemas)) lista = d.sistemas;
 				else if (Array.isArray(d.items)) lista = d.items;
-				else if (Array.isArray(d.result)) lista = d.result;
-				else if (Array.isArray(d.clientes)) lista = d.clientes;
 				else if (Array.isArray(d.lista)) lista = d.lista;
 				else if (Array.isArray(d.value)) lista = d.value;
 				else if (Array.isArray(d.$values)) lista = d.$values;
@@ -192,19 +212,151 @@ export default function AtualizarClientesPorVersaoPage() {
 				}
 			}
 
-			const mappedAll = lista.map((row) => mapRowFromApi(row));
+			if (!Array.isArray(lista) || lista.length === 0) {
+				console.warn(
+					"[AtualizarClientes] /sistema retornou vazio. Nenhum sistema disponível."
+				);
+				setSistemas([]);
+				setSistemaSelecionado(undefined);
+				return;
+			}
 
-			// filtra pelo idSistema (IDs corrigidos)
-      // SACEX = 2, SAGRAM = 1
-			const somenteDoSistema = mappedAll.filter(
-				(r) => !sistemaSelecionado || r.idSistema === sistemaSelecionado.id
+			const mapped: SistemaOption[] = lista
+				.map((s: any) => ({
+					id: Number(s.id ?? s.idSistema ?? 0),
+					nome: s.nome ?? s.nomeSistema ?? s.descricao ?? "",
+				}))
+				// filtra apenas nome vazio ou genérico "Sistema"
+				.filter(
+					(s) =>
+						s.nome &&
+						s.nome.trim() !== "" &&
+						s.nome.trim().toLowerCase() !== "sistema"
+				);
+
+			console.log("✅ Sistemas mapeados:", mapped); // DEBUG
+
+			if (mapped.length === 0) {
+				console.warn(
+					"[AtualizarClientes] /sistema retornou apenas registros inválidos. Nenhum sistema disponível."
+				);
+				setSistemas([]);
+				setSistemaSelecionado(undefined);
+				return;
+			}
+
+			setSistemas(mapped);
+			setSistemaSelecionado(mapped[0]);
+		} catch (e) {
+			console.error(
+				"[AtualizarClientes] Erro ao carregar /sistema:",
+				e
 			);
+			setSistemas([]);
+			setSistemaSelecionado(undefined);
+		}
+	}
 
-			setRows(somenteDoSistema);
+	useEffect(() => {
+		loadSistemas();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	/* ===== carregar clientes x sistema (CORRIGIDO para usar /clientes) ===== */
+
+	async function loadRows() {
+		if (!sistemaSelecionado) {
+			setRows([]);
+			return;
+		}
+
+		try {
+			setIsLoading(true);
+
+			const data = await backendFetch("/clientes", {
+				method: "GET",
+			});
+
+			console.log("📊 Resposta de /clientes:", data);
+
+			let listaClientes: any[] = [];
+			if (Array.isArray(data)) {
+				listaClientes = data;
+			} else if (data && typeof data === "object") {
+				const d: any = data;
+				if (Array.isArray(d.data)) listaClientes = d.data;
+				else if (Array.isArray(d.clientes)) listaClientes = d.clientes;
+				else if (Array.isArray(d.items)) listaClientes = d.items;
+				else if (Array.isArray(d.result)) listaClientes = d.result;
+				else if (Array.isArray(d.lista)) listaClientes = d.lista;
+				else if (Array.isArray(d.value)) listaClientes = d.value;
+				else if (Array.isArray(d.$values)) listaClientes = d.$values;
+				else {
+					const values = Object.values(d);
+					if (values.length === 1 && Array.isArray(values[0])) {
+						listaClientes = values[0] as any[];
+					}
+				}
+			}
+
+			console.log("📊 Clientes extraídos:", listaClientes.length);
+
+			// Transforma cada cliente.sistemas[] em linhas da tabela
+			const todasAsLinhas: ClienteVersaoRow[] = [];
+			const chavesUnicas = new Set<string>(); // Evita duplicatas
+			
+			for (const cliente of listaClientes) {
+				const sistemasDoCliente = cliente.sistemas || [];
+				
+				for (const sistema of sistemasDoCliente) {
+					// Só adiciona se for do sistema selecionado
+					if (sistema.idSistema === sistemaSelecionado.id) {
+						// Chave única: idCliente-idSistema
+						const chaveUnica = `${cliente.id}-${sistema.idSistema}`;
+						
+						// Se já existe essa combinação, pula
+						if (chavesUnicas.has(chaveUnica)) {
+							console.log(`⚠️ Duplicata ignorada: Cliente ${cliente.nome} (${cliente.id}) - Sistema ${sistema.idSistema}`);
+							continue;
+						}
+						
+						chavesUnicas.add(chaveUnica);
+						
+						const row: ClienteVersaoRow = {
+							id: sistema.id ?? 0,
+							idCliente: cliente.id ?? 0,
+							idSistema: sistema.idSistema ?? 0,
+							codigo: cliente.id ?? 0,
+							cliente: cliente.nome ?? "",
+							sistema: sistema.nome ?? sistemaSelecionado.nome ?? "",
+							versaoAtual: sistema.versaoAtual ?? null,
+							versaoAnterior: sistema.versaoAnterior ?? null,
+							dataAtualizacao: sistema.dataAtualizacao ?? null,
+							nomeBruto: cliente.nome ?? "",
+							observacao: sistema.observacao ?? null,
+							quantidadeLicenca: sistema.quantidadeLicenca ?? 0,
+							quantidadeDiaLiberacao: sistema.quantidadeDiaLiberacao ?? 0,
+							idStatus: sistema.idStatus ?? 0,
+							status: sistema.status ?? null,
+							observacaoStatus: sistema.observacaoStatus ?? null,
+							passoAtualizacao: sistema.passoAtualizacao ?? 0,
+							quantidadeBancoDados: sistema.quantidadeBancoDados ?? 0,
+							quantidadeCnpj: sistema.quantidadeCnpj ?? 0,
+							portaMblock: sistema.portaMblock ?? 0,
+							ipMblock: sistema.ipMblock ?? null,
+						};
+						todasAsLinhas.push(row);
+					}
+				}
+			}
+
+			console.log("✅ Total de linhas para o sistema selecionado:", todasAsLinhas.length);
+
+			setRows(todasAsLinhas);
 			setSelectedKeys([]);
 			setPage(1);
 		} catch (e) {
-			console.error("Falha ao carregar clientes/versão:", e);
+			console.error("Falha ao carregar clientes:", e);
 			alert("Não foi possível carregar os clientes para atualização.");
 			setRows([]);
 		} finally {
@@ -218,6 +370,7 @@ export default function AtualizarClientesPorVersaoPage() {
 	}, [sistemaSelecionado?.id]);
 
 	/* ===== busca + ordenação ===== */
+
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
 		let data = rows.filter((r) =>
@@ -270,47 +423,32 @@ export default function AtualizarClientesPorVersaoPage() {
 		} else setSortDir("asc");
 	}
 
-	/* ===== payloads ===== */
+	/* ===== payload PUT /clientesistema/{id} ===== */
 
-	// continua usando o PUT /autenticacao/cliente/{cnpj}/{idSistema}
-	// só pra manter observacaoStatus / status etc.
-	function buildClientePayload(
+	function buildClienteSistemaPayload(
 		row: ClienteVersaoRow,
 		novaVersao: string,
 		dataVersaoISO: string
 	) {
-		const hojeBR = new Date().toLocaleDateString("pt-BR");
-		const dataRegistro = row.dataRegistro || hojeBR;
-
 		return {
-			nome: row.cliente,
-			cnpj: row.cnpj.replace(/\D/g, ""),
-			dataRegistro: dataRegistro,
-			nomeContato: row.nomeContato ?? "",
-			telefone: row.telefone ?? "",
-			email: row.email ?? "",
+			id: row.id,
+			idCliente: row.idCliente,
+			idSistema: row.idSistema,
+			nome: row.nomeBruto || row.cliente,
+			observacao: row.observacao ?? "",
 			quantidadeLicenca: row.quantidadeLicenca ?? 0,
 			quantidadeDiaLiberacao: row.quantidadeDiaLiberacao ?? 0,
-			idStatus: row.idStatus ?? 1,
+			idStatus: row.idStatus ?? 0,
 			status: row.status ?? "",
-			idSistema: row.idSistema || (sistemaSelecionado?.id ?? 0),
 			observacaoStatus: `Versão atualizada para ${novaVersao} em ${dataVersaoISO}`,
-		};
-	}
-
-	// NOVO: payload específico da rota PUT /autenticacao/atualizaversao
-	function buildAtualizaVersaoPayload(
-		row: ClienteVersaoRow,
-		novaVersao: string,
-		dataVersaoISO: string
-	) {
-		return {
-			cnpjCliente: row.cnpj.replace(/\D/g, ""),
-			idSistema: String(row.idSistema || sistemaSelecionado?.id || 0),
+			versaoAnterior: row.versaoAtual ?? row.versaoAnterior ?? "",
 			versaoAtual: novaVersao,
-			versaoAnterior: row.versaoAtual ?? "",
 			dataAtualizacao: dataVersaoISO,
-			passoAtualizacao: 0,
+			passoAtualizacao: row.passoAtualizacao ?? 0,
+			quantidadeBancoDados: row.quantidadeBancoDados ?? 0,
+			quantidadeCnpj: row.quantidadeCnpj ?? 0,
+			portaMblock: row.portaMblock ?? 0,
+			ipMblock: row.ipMblock ?? "",
 		};
 	}
 
@@ -349,59 +487,32 @@ export default function AtualizarClientesPorVersaoPage() {
 				);
 				if (!row) continue;
 
-				const cnpjDigits = row.cnpj.replace(/\D/g, "");
-				const sistemaPathId = row.idSistema || sistemaSelecionado.id;
-
-				// 1) PUT /autenticacao/cliente/{cnpj}/{idSistema}
-				//    (mantém observacaoStatus e demais dados do cliente)
-				const payloadCliente = buildClientePayload(
+				const payload = buildClienteSistemaPayload(
 					row,
 					versao,
 					dataVersaoISO
 				);
 
-				const pathCliente = `/autenticacao/cliente/${cnpjDigits}/${sistemaPathId}`;
+				const path = `/clientesistema/${row.id}`;
 
-				console.log("Atualizando cliente (dados básicos):", {
-					pathCliente,
-					payloadCliente,
-				});
+				console.log("Atualizando cliente/sistema:", { path, payload });
 
-				await backendFetch(pathCliente, {
+				await backendFetch(path, {
 					method: "PUT",
-					body: JSON.stringify(payloadCliente),
-				});
-
-				// 2) PUT /autenticacao/atualizaversao
-				//    (grava versaoAtual, versaoAnterior, dataAtualizacao)
-				const payloadVersao = buildAtualizaVersaoPayload(
-					row,
-					versao,
-					dataVersaoISO
-				);
-
-				console.log("Atualizando VERSÃO do cliente:", {
-					url: "/autenticacao/atualizaversao",
-					payloadVersao,
-				});
-
-				await backendFetch("/autenticacao/atualizaversao", {
-					method: "PUT",
-					body: JSON.stringify(payloadVersao),
+					body: JSON.stringify(payload),
 				});
 			}
 
-			// Atualiza o estado local pra refletir as novas versões
 			setRows((prev) =>
 				prev.map((r) => {
 					const key = rowKey(r);
 					if (!selectedKeys.includes(key)) return r;
-
-					const oldVersaoAtual = r.versaoAtual || "";
+					const oldVersaoAtual = r.versaoAtual || r.versaoAnterior || "";
 					return {
 						...r,
-						versaoAnterior: oldVersaoAtual,
+						versaoAnterior: oldVersaoAtual || r.versaoAnterior,
 						versaoAtual: versao,
+						dataAtualizacao: dataVersaoISO,
 					};
 				})
 			);
@@ -430,7 +541,7 @@ export default function AtualizarClientesPorVersaoPage() {
 					{/* topo mobile */}
 					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b flex items-center justify-center">
 						<div className="font-semibold text-white">
-							AWSRegistro | Atualizar Clientes por Versão
+							Atualizar Clientes por Versão
 						</div>
 					</div>
 
@@ -471,14 +582,12 @@ export default function AtualizarClientesPorVersaoPage() {
 										value={sistemaSelecionado?.id ?? ""}
 										onChange={(e) => {
 											const id = Number(e.target.value) || 0;
-											const found = sistemasMock.find(
-												(s) => s.id === id
-											);
+											const found = sistemas.find((s) => s.id === id);
 											setSistemaSelecionado(found);
 										}}
 									>
 										<option value="">Selecione...</option>
-										{sistemasMock.map((s) => (
+										{sistemas.map((s) => (
 											<option key={s.id} value={s.id}>
 												{s.nome}
 											</option>
@@ -583,9 +692,7 @@ export default function AtualizarClientesPorVersaoPage() {
 											</th>
 											<th
 												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
-												onClick={() =>
-													toggleSort("versaoAnterior")
-												}
+												onClick={() => toggleSort("versaoAnterior")}
 											>
 												Versão Anterior{" "}
 												{sortKey === "versaoAnterior"
@@ -666,7 +773,7 @@ export default function AtualizarClientesPorVersaoPage() {
 							</div>
 						</div>
 
-						{/* versão mobile (cards) */}
+						{/* mobile cards */}
 						<div className="sm:hidden space-y-3">
 							{isLoading ? (
 								<div className="rounded-xl border bg-white p-6 text-center text-gray-500">
@@ -720,12 +827,11 @@ export default function AtualizarClientesPorVersaoPage() {
 							)}
 						</div>
 
-						{/* footer / paginação + botão */}
+						{/* footer */}
 						<div className="mt-4 flex flex-wrap items-center justify-between gap-3">
 							<div className="text-sm text-gray-700">
 								{filtered.length} registro(s) • Página {page} de{" "}
-								{totalPages} • {selectedKeys.length} linha(s){" "}
-								selecionada(s)
+								{totalPages} • {selectedKeys.length} linha(s) selecionada(s)
 							</div>
 
 							<div className="flex items-center gap-2">

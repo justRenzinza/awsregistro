@@ -2,10 +2,12 @@
 
 import { useEffect, useState, FormEvent } from "react";
 import Sidebar from "@/app/components/Sidebar";
+import { backendFetch } from "@/lib/backend";
 
 type Sistema = {
 	id: number;
 	nome: string;
+	observacao?: string;
 };
 
 export default function CadastroVersaoSistemaPage() {
@@ -18,17 +20,60 @@ export default function CadastroVersaoSistemaPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [success, setSuccess] = useState<string | null>(null);
 
-	// carrega sistemas para o combo
+	// carrega sistemas usando backendFetch (igual atualizar-clientes)
 	useEffect(() => {
 		async function loadSistemas() {
 			try {
-				const resp = await fetch("/api/cadastro-sistema", { cache: "no-store" });
-				const data = await resp.json();
+				const data = await backendFetch("/sistema", {
+					method: "GET",
+				});
+
+				console.log("📊 Resposta de /sistema:", data);
+
+				let lista: any[] = [];
 				if (Array.isArray(data)) {
-					setSistemas(data);
+					lista = data;
+				} else if (data && typeof data === "object") {
+					const d: any = data;
+					// A resposta vem como {data: [...], records: 7}
+					if (Array.isArray(d.data)) lista = d.data;
+					else if (Array.isArray(d.sistemas)) lista = d.sistemas;
+					else if (Array.isArray(d.items)) lista = d.items;
+					else if (Array.isArray(d.lista)) lista = d.lista;
+					else if (Array.isArray(d.value)) lista = d.value;
+					else if (Array.isArray(d.$values)) lista = d.$values;
+					else {
+						const values = Object.values(d);
+						if (values.length === 1 && Array.isArray(values[0])) {
+							lista = values[0] as any[];
+						}
+					}
 				}
+
+				if (!Array.isArray(lista) || lista.length === 0) {
+					console.warn("[VersaoSistema] /sistema retornou vazio.");
+					setSistemas([]);
+					return;
+				}
+
+				const mapped: Sistema[] = lista
+					.map((s: any) => ({
+						id: Number(s.id ?? s.idSistema ?? 0),
+						nome: s.nome ?? s.nomeSistema ?? s.descricao ?? "",
+						observacao: s.observacao ?? "",
+					}))
+					.filter(
+						(s) =>
+							s.nome &&
+							s.nome.trim() !== "" &&
+							s.nome.trim().toLowerCase() !== "sistema"
+					);
+
+				console.log("✅ Sistemas carregados:", mapped);
+				setSistemas(mapped);
 			} catch (e) {
-				console.error("Erro ao carregar sistemas:", e);
+				console.error("[VersaoSistema] Erro ao carregar /sistema:", e);
+				setSistemas([]);
 			}
 		}
 		loadSistemas();
@@ -52,11 +97,14 @@ export default function CadastroVersaoSistemaPage() {
 			return;
 		}
 
+		// TODO: Implementar lógica de salvamento quando definir o endpoint correto
+		setError("Funcionalidade de salvamento ainda não implementada. Aguardando definição do endpoint.");
+		
+		/* Exemplo de como seria quando tiver o endpoint:
 		try {
 			setLoading(true);
-			const resp = await fetch("/api/versao-sistema", {
+			const resp = await backendFetch("/sistema/versao", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					idSistema: Number(idSistema),
 					versao,
@@ -64,10 +112,8 @@ export default function CadastroVersaoSistemaPage() {
 				}),
 			});
 
-			const data = await resp.json();
-
-			if (!resp.ok || !data.ok) {
-				setError(data?.error || "Erro ao cadastrar versão.");
+			if (!resp.ok) {
+				setError("Erro ao cadastrar versão.");
 				return;
 			}
 
@@ -79,6 +125,7 @@ export default function CadastroVersaoSistemaPage() {
 		} finally {
 			setLoading(false);
 		}
+		*/
 	}
 
 	return (
@@ -91,7 +138,7 @@ export default function CadastroVersaoSistemaPage() {
 				<div className="flex-1">
 					{/* topo mobile (sem botão de menu, igual opção A das outras telas) */}
 					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b text-center font-semibold text-white">
-						AWSRegistro | Versões por Sistema
+						Versões por Sistema
 					</div>
 
 					<main className="mx-auto max-w-7xl p-4 md:p-6">
