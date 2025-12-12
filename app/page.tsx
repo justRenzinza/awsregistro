@@ -3,7 +3,6 @@
 import Image from "next/image";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { backendFetch } from "@/lib/backend";
 
 export default function LoginPage() {
 	const router = useRouter();
@@ -37,13 +36,43 @@ export default function LoginPage() {
 		setLoading(true);
 
 		try {
-			// ✅ IMPORTANTÍSSIMO: usar backendFetch (no Vercel ele vai pra /api/proxy)
-			const data = await backendFetch("/autenticacao", {
+			// ✅ Login seguro: cria cookie httpOnly no servidor
+			const res = await fetch("/api/auth/login", {
 				method: "POST",
+				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ login, senha }),
 			});
 
-			// guarda token / refresh / cliente
+			const text = await res.text();
+			let data: any = null;
+
+			try {
+				data = text ? JSON.parse(text) : null;
+			} catch {
+				data = text;
+			}
+
+			if (!res.ok) {
+				const status = res.status;
+
+				if (status === 401) {
+					setError("Usuário ou senha inválidos.");
+					return;
+				}
+				if (status === 404) {
+					setError('Backend error 404 - "Not Found"');
+					return;
+				}
+
+				const msg =
+					(data && typeof data === "object" && (data.mensagem || data.message || data.erro)) ||
+					(status ? `Erro ${status} ao conectar com o servidor.` : null);
+
+				setError(msg || "Erro ao conectar com o servidor.");
+				return;
+			}
+
+			// ✅ Mantém seus caches locais (opcional)
 			if (typeof window !== "undefined") {
 				if (data?.token) localStorage.setItem("aws_token", data.token);
 				if (data?.refresh) localStorage.setItem("aws_refresh", data.refresh);
@@ -60,31 +89,11 @@ export default function LoginPage() {
 				else localStorage.removeItem("aws_login");
 			}
 
+			// redireciona para a área logada
 			router.push("/clientes");
-		} catch (err: any) {
+		} catch (err) {
 			console.error(err);
-
-			// backendFetch joga Error com .status e .data
-			const status = err?.status;
-			const payload = err?.data;
-
-			if (status === 401) {
-				setError("Usuário ou senha inválidos.");
-				return;
-			}
-			if (status === 404) {
-				setError('Backend error 404 - "Not Found"');
-				return;
-			}
-
-			// tenta pegar msg do backend
-			const msg =
-				payload?.mensagem ||
-				payload?.message ||
-				payload?.erro ||
-				(status ? `Erro ${status} ao conectar com o servidor.` : null);
-
-			setError(msg || "Erro ao conectar com o servidor.");
+			setError("Erro ao conectar com o servidor.");
 		} finally {
 			setLoading(false);
 		}
@@ -140,16 +149,6 @@ export default function LoginPage() {
 							className="w-full bg-transparent border-b border-white focus:outline-none placeholder-white/80"
 							autoComplete="current-password"
 						/>
-					</div>
-
-					<div className="flex items-center gap-2 text-sm">
-						<input
-							type="checkbox"
-							id="remember"
-							checked={lembrar}
-							onChange={(e) => setLembrar(e.target.checked)}
-						/>
-						<label htmlFor="remember">Lembrar senha</label>
 					</div>
 
 					<button
