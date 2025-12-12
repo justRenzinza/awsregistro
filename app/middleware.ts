@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const PROTECTED_PREFIXES = [
+const ROTAS_PROTEGIDAS = [
 	"/clientes",
 	"/controle-sistema",
 	"/cadastro-sistema",
@@ -12,23 +12,29 @@ const PROTECTED_PREFIXES = [
 export function middleware(req: NextRequest) {
 	const { pathname } = req.nextUrl;
 
-	// protege rotas do app
-	const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
-	if (!isProtected) return NextResponse.next();
+	// verifica se a rota é protegida
+	const rotaProtegida = ROTAS_PROTEGIDAS.some((rota) =>
+		pathname.startsWith(rota)
+	);
 
-	const token = req.cookies.get("aws_token")?.value;
-
-	// sem token -> volta pro login
-	if (!token) {
-		const url = req.nextUrl.clone();
-		url.pathname = "/";
-		return NextResponse.redirect(url);
+	if (!rotaProtegida) {
+		return NextResponse.next();
 	}
 
+	// 🔐 verifica cookie httpOnly
+	const token = req.cookies.get("aws_token")?.value;
+
+	// ❌ sem token → volta pro login
+	if (!token) {
+		const loginUrl = req.nextUrl.clone();
+		loginUrl.pathname = "/";
+		return NextResponse.redirect(loginUrl);
+	}
+
+	// ✅ com token → segue
 	return NextResponse.next();
 }
 
-// evita rodar em static/assets/api
 export const config = {
 	matcher: [
 		"/clientes/:path*",
