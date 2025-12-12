@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 const BACKEND_HTTP =
 	process.env.BACKEND_HTTP_URL ||
-	process.env.NEXT_PUBLIC_BACKEND_URL || // fallback (se você já usa)
+	process.env.NEXT_PUBLIC_BACKEND_URL ||
 	"http://189.50.1.222:8046";
 
 function joinUrl(base: string, path: string) {
@@ -25,33 +25,36 @@ export async function OPTIONS() {
 	});
 }
 
-export async function GET(req: NextRequest, ctx: { params: { path: string[] } }) {
+// 🔽 ATENÇÃO: params agora é Promise no Next 16
+type RouteCtx = {
+	params: Promise<{
+		path: string[];
+	}>;
+};
+
+export async function GET(req: NextRequest, ctx: RouteCtx) {
 	return forward(req, ctx);
 }
-export async function POST(req: NextRequest, ctx: { params: { path: string[] } }) {
+export async function POST(req: NextRequest, ctx: RouteCtx) {
 	return forward(req, ctx);
 }
-export async function PUT(req: NextRequest, ctx: { params: { path: string[] } }) {
+export async function PUT(req: NextRequest, ctx: RouteCtx) {
 	return forward(req, ctx);
 }
-export async function DELETE(req: NextRequest, ctx: { params: { path: string[] } }) {
+export async function DELETE(req: NextRequest, ctx: RouteCtx) {
 	return forward(req, ctx);
 }
 
-async function forward(req: NextRequest, ctx: { params: { path: string[] } }) {
-	const path = ctx.params.path?.join("/") || "";
-	const baseUrl = joinUrl(BACKEND_HTTP, path);
+async function forward(req: NextRequest, ctx: RouteCtx) {
+	const { path = [] } = await ctx.params;
 
+	const targetBase = joinUrl(BACKEND_HTTP, path.join("/"));
 	const search = req.nextUrl.searchParams.toString();
-	const targetUrl = search ? `${baseUrl}?${search}` : baseUrl;
+	const targetUrl = search ? `${targetBase}?${search}` : targetBase;
 
-	// copia headers e remove alguns que podem atrapalhar
 	const headers = new Headers(req.headers);
 	headers.delete("host");
 	headers.delete("origin");
-
-	// (opcional) se seu backend exige Authorization, já vai junto
-	// headers.set("Authorization", req.headers.get("authorization") ?? "");
 
 	const method = req.method.toUpperCase();
 	const body =
@@ -62,8 +65,6 @@ async function forward(req: NextRequest, ctx: { params: { path: string[] } }) {
 			method,
 			headers,
 			body,
-			// @ts-ignore
-			redirect: "manual",
 		});
 
 		const outHeaders = new Headers(resp.headers);
@@ -76,7 +77,7 @@ async function forward(req: NextRequest, ctx: { params: { path: string[] } }) {
 	} catch (err: any) {
 		return NextResponse.json(
 			{
-				error: "Falha ao acessar o backend via proxy",
+				error: "Falha ao acessar backend via proxy",
 				detail: String(err?.message || err),
 				targetUrl,
 			},
