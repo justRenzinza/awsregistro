@@ -1,17 +1,7 @@
 // lib/backend.ts
 
-/**
- * ATENÇÃO (Vercel):
- * - Em produção (HTTPS), o browser não pode chamar backend HTTP direto (Mixed Content).
- * - Por isso, quando estiver rodando no browser e NÃO for localhost, usamos o proxy:
- *     /api/proxy/...
- * - No localhost, pode chamar direto o BACKEND_URL (ou também pode usar o proxy, se quiser).
- */
-
-// URL base do backend (DEV/local). Mantive exatamente seu padrão.
-// Se quiser, pode trocar para "...:8046/v1" como você já usa.
 export const BACKEND_URL =
-	process.env.NEXT_PUBLIC_BACKEND_URL || "http://189.50.1.222:8046";
+	process.env.NEXT_PUBLIC_BACKEND_URL || "http://189.50.1.222:8046/v1";
 
 /**
  * Lê o token salvo no localStorage pelo login

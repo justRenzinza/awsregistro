@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 const BACKEND_HTTP =
 	process.env.BACKEND_HTTP_URL ||
 	process.env.NEXT_PUBLIC_BACKEND_URL ||
-	"http://189.50.1.222:8046";
+	"http://189.50.1.222:8046/v1";
 
 function joinUrl(base: string, path: string) {
 	const b = base.replace(/\/+$/, "");
