@@ -1,47 +1,51 @@
+// middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 
-const ROTAS_PROTEGIDAS = [
-	"/clientes",
-	"/controle-sistema",
-	"/cadastro-sistema",
-	"/clientes-versao",
-	"/versao-sistema",
-	"/atualizar-clientes",
-];
+const PUBLIC_FILE = /\.(.*)$/;
 
 export function middleware(req: NextRequest) {
 	const { pathname } = req.nextUrl;
 
-	// verifica se a rota é protegida
-	const rotaProtegida = ROTAS_PROTEGIDAS.some((rota) =>
-		pathname.startsWith(rota)
-	);
-
-	if (!rotaProtegida) {
+	// libera arquivos estáticos e rotas internas
+	if (
+		pathname.startsWith("/_next") ||
+		pathname.startsWith("/favicon.ico") ||
+		pathname.startsWith("/logo") ||
+		PUBLIC_FILE.test(pathname)
+	) {
 		return NextResponse.next();
 	}
 
-	// 🔐 verifica cookie httpOnly
-	const token = req.cookies.get("aws_token")?.value;
-
-	// ❌ sem token → volta pro login
-	if (!token) {
-		const loginUrl = req.nextUrl.clone();
-		loginUrl.pathname = "/";
-		return NextResponse.redirect(loginUrl);
+	// libera APIs (proxy/login/logout) sem exigir cookie
+	if (pathname.startsWith("/api/")) {
+		return NextResponse.next();
 	}
 
-	// ✅ com token → segue
+	// sua tela de login é a "/"
+	const isLoginPage = pathname === "/";
+
+	// cookie httpOnly que o /api/login define
+	const token = req.cookies.get("aws_token")?.value;
+
+	// se não tem token e está tentando acessar área logada -> manda pro login
+	if (!token && !isLoginPage) {
+		const url = req.nextUrl.clone();
+		url.pathname = "/";
+		url.searchParams.set("next", pathname); // opcional (voltar depois do login)
+		return NextResponse.redirect(url);
+	}
+
+	// se tem token e está no login -> manda pra /clientes
+	if (token && isLoginPage) {
+		const url = req.nextUrl.clone();
+		url.pathname = "/clientes";
+		return NextResponse.redirect(url);
+	}
+
 	return NextResponse.next();
 }
 
+// protege tudo, exceto api e arquivos
 export const config = {
-	matcher: [
-		"/clientes/:path*",
-		"/controle-sistema/:path*",
-		"/cadastro-sistema/:path*",
-		"/clientes-versao/:path*",
-		"/versao-sistema/:path*",
-		"/atualizar-clientes/:path*",
-	],
+	matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 };
