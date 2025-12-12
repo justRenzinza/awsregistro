@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const BACKEND_URL =
-	process.env.NEXT_PUBLIC_BACKEND_URL || "http://189.50.1.222:8046/v1";
+	process.env.NEXT_PUBLIC_BACKEND_URL || "http://189.50.1.222:8046";
 
 export default function LoginPage() {
 	const router = useRouter();
