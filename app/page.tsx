@@ -1,10 +1,9 @@
 "use client";
+
 import Image from "next/image";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-
-const BACKEND_URL =
-	process.env.NEXT_PUBLIC_BACKEND_URL || "http://189.50.1.222:8046/v1";
+import { backendFetch } from "@/lib/backend";
 
 export default function LoginPage() {
 	const router = useRouter();
@@ -38,64 +37,54 @@ export default function LoginPage() {
 		setLoading(true);
 
 		try {
-			const res = await fetch(`${BACKEND_URL}/autenticacao`, {
+			// ✅ IMPORTANTÍSSIMO: usar backendFetch (no Vercel ele vai pra /api/proxy)
+			const data = await backendFetch("/autenticacao", {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ login, senha }),
 			});
 
-			if (!res.ok) {
-				let msg = "Falha ao fazer login.";
-				try {
-					const data = await res.json();
-					if (data?.mensagem) msg = data.mensagem;
-				} catch {
-					// ignora erro de parse
-				}
-
-				if (res.status === 401) {
-					setError("Usuário ou senha inválidos.");
-				} else if (res.status === 404) {
-					setError('Backend error 404 - "Not Found"');
-				} else {
-					setError(msg);
-				}
-				return;
-			}
-
-			const data = await res.json();
-
 			// guarda token / refresh / cliente
 			if (typeof window !== "undefined") {
-				if (data.token) {
-					localStorage.setItem("aws_token", data.token);
-				}
-				if (data.refresh) {
-					localStorage.setItem("aws_refresh", data.refresh);
-				}
-				if (data.cliente) {
+				if (data?.token) localStorage.setItem("aws_token", data.token);
+				if (data?.refresh) localStorage.setItem("aws_refresh", data.refresh);
+
+				if (data?.cliente) {
 					localStorage.setItem("aws_cliente", JSON.stringify(data.cliente));
 					if (data.cliente.idSistema != null) {
-						localStorage.setItem(
-							"aws_idSistema",
-							String(data.cliente.idSistema)
-						);
+						localStorage.setItem("aws_idSistema", String(data.cliente.idSistema));
 					}
 				}
 
-				// lembrar login (apesar de o texto estar "Lembrar senha" 😅)
-				if (lembrar) {
-					localStorage.setItem("aws_login", login);
-				} else {
-					localStorage.removeItem("aws_login");
-				}
+				// lembrar login (apesar do texto estar "Lembrar senha" 😅)
+				if (lembrar) localStorage.setItem("aws_login", login);
+				else localStorage.removeItem("aws_login");
 			}
 
-			// redireciona para a área logada
 			router.push("/clientes");
-		} catch (err) {
+		} catch (err: any) {
 			console.error(err);
-			setError("Erro ao conectar com o servidor.");
+
+			// backendFetch joga Error com .status e .data
+			const status = err?.status;
+			const payload = err?.data;
+
+			if (status === 401) {
+				setError("Usuário ou senha inválidos.");
+				return;
+			}
+			if (status === 404) {
+				setError('Backend error 404 - "Not Found"');
+				return;
+			}
+
+			// tenta pegar msg do backend
+			const msg =
+				payload?.mensagem ||
+				payload?.message ||
+				payload?.erro ||
+				(status ? `Erro ${status} ao conectar com o servidor.` : null);
+
+			setError(msg || "Erro ao conectar com o servidor.");
 		} finally {
 			setLoading(false);
 		}
@@ -117,9 +106,7 @@ export default function LoginPage() {
 				</div>
 
 				{/* Título */}
-				<h2 className="text-center text-2xl font-semibold mb-2">
-					AWSRegistro
-				</h2>
+				<h2 className="text-center text-2xl font-semibold mb-2">AWSRegistro</h2>
 				<p className="text-center text-sm mb-4 text-white/80">
 					Acesse com seu usuário de sistema
 				</p>
@@ -140,8 +127,10 @@ export default function LoginPage() {
 							value={login}
 							onChange={(e) => setLogin(e.target.value)}
 							className="w-full bg-transparent border-b border-white focus:outline-none placeholder-white/80"
+							autoComplete="username"
 						/>
 					</div>
+
 					<div>
 						<input
 							type="password"
@@ -149,6 +138,7 @@ export default function LoginPage() {
 							value={senha}
 							onChange={(e) => setSenha(e.target.value)}
 							className="w-full bg-transparent border-b border-white focus:outline-none placeholder-white/80"
+							autoComplete="current-password"
 						/>
 					</div>
 

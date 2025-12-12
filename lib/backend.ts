@@ -12,106 +12,63 @@ export function getAuthHeaders(): Record<string, string> {
 	return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/**
- * Normaliza qualquer tipo de headers (Headers, array, objeto simples)
- * para um objeto { [chave]: valor }
- */
 function normalizeHeaders(h: HeadersInit | undefined): Record<string, string> {
 	if (!h) return {};
-
-	// Headers()
 	if (h instanceof Headers) {
 		const obj: Record<string, string> = {};
-		h.forEach((v, k) => {
-			obj[k] = v;
-		});
+		h.forEach((v, k) => (obj[k] = v));
 		return obj;
 	}
-
-	// Array [ [k, v], ... ]
 	if (Array.isArray(h)) {
 		const obj: Record<string, string> = {};
-		for (const [k, v] of h) {
-			obj[k] = v;
-		}
+		for (const [k, v] of h) obj[k] = v;
 		return obj;
 	}
-
-	// Objeto simples
 	return h as Record<string, string>;
 }
 
 /**
- * Decide qual "base" usar:
- * - Produção no browser (Vercel): usa /api/proxy
- * - Localhost no browser: usa BACKEND_URL direto (mantém seu comportamento atual)
- * - SSR (server): pode usar BACKEND_URL direto também (mas normalmente suas páginas são "use client")
+ * Em produção (Vercel/HTTPS), usa /api/proxy para evitar Mixed Content.
+ * Em dev (localhost), pode ir direto no backend http.
  */
-function getBaseUrl(): string {
-	// Se está no browser
-	if (typeof window !== "undefined") {
-		const host = window.location.hostname;
-		const isLocal = host === "localhost" || host === "127.0.0.1";
+function buildUrl(path: string) {
+	const cleanPath = path.startsWith("/") ? path : `/${path}`;
 
-		// Em produção (não-local), usa proxy do próprio domínio
-		if (!isLocal) return "/api/proxy";
+	const isBrowser = typeof window !== "undefined";
+	const isHttps =
+		isBrowser && window.location && window.location.protocol === "https:";
 
-		// Localhost: usa backend direto
-		return BACKEND_URL;
+	// Se estiver em HTTPS, usa o proxy interno do Next (/api/proxy)
+	if (isHttps) {
+		// remove /v1 do começo (porque o proxy vai montar o caminho)
+		const p = cleanPath.replace(/^\/v1\b/, "");
+		return `/api/proxy${p}`;
 	}
 
-	// No server (build/runtime): em geral não chamamos backend aqui,
-	// mas se chamar, mantém o BACKEND_URL.
-	return BACKEND_URL;
+	// Caso contrário, chama direto o backend
+	return `${BACKEND_URL}${cleanPath}`;
 }
 
-/**
- * Garante que não vai dar "//" e que path sempre tem "/"
- */
-function joinUrl(base: string, path: string): string {
-	const b = String(base || "").replace(/\/+$/, "");
-	const p = String(path || "").startsWith("/") ? path : `/${path}`;
-	return `${b}${p}`;
-}
-
-/**
- * Wrapper padrão para chamadas ao backend
- */
 export async function backendFetch(
 	path: string,
 	options: RequestInit = {}
 ): Promise<any> {
-	const base = getBaseUrl();
+	const url = buildUrl(path);
 
-	// Quando base é "/api/proxy", precisamos repassar o path "limpo"
-	// Ex: backendFetch("/clientesistema") => "/api/proxy/clientesistema"
-	const url = joinUrl(base, path);
-
-	// headers vindos de quem chamou
 	const incoming = normalizeHeaders(options.headers);
-
-	// headers de auth com token
 	const authHeaders = getAuthHeaders();
 
-	// objeto final de headers (objeto simples)
 	const finalHeaders: Record<string, string> = {
+		"Content-Type": "application/json",
 		...incoming,
 		...authHeaders,
 	};
-
-	// Só força Content-Type quando tem body
-	// (evita dar problema em GET/DELETE e em alguns backends mais chatos)
-	const hasBody = options.body !== undefined && options.body !== null;
-	if (hasBody && !finalHeaders["Content-Type"] && !finalHeaders["content-type"]) {
-		finalHeaders["Content-Type"] = "application/json";
-	}
 
 	const resp = await fetch(url, {
 		...options,
 		headers: finalHeaders as HeadersInit,
 	});
 
-	// --- trata respostas sem corpo (204/205) ---
 	if (resp.status === 204 || resp.status === 205) {
 		if (!resp.ok) {
 			const err = new Error(`Backend error ${resp.status}: no content`) as Error & {
@@ -131,7 +88,7 @@ export async function backendFetch(
 	try {
 		data = text ? JSON.parse(text) : null;
 	} catch {
-		data = text; // texto cru
+		data = text;
 	}
 
 	if (!resp.ok) {
