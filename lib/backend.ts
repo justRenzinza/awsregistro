@@ -11,7 +11,7 @@
 // URL base do backend (DEV/local). Mantive exatamente seu padrão.
 // Se quiser, pode trocar para "...:8046/v1" como você já usa.
 export const BACKEND_URL =
-	process.env.NEXT_PUBLIC_BACKEND_URL || "http://189.50.1.222:8046/v1";
+	process.env.NEXT_PUBLIC_BACKEND_URL || "http://189.50.1.222:8046";
 
 /**
  * Lê o token salvo no localStorage pelo login
