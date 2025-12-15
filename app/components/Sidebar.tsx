@@ -57,6 +57,41 @@ const items: { key: SidebarKey; label: string; href: string }[] = [
 export default function Sidebar({ active }: SidebarProps) {
 	const [openMobile, setOpenMobile] = useState(false);
 
+	// ✅ usuário logado (dinâmico)
+	const [usuarioLabel, setUsuarioLabel] = useState("—");
+
+	// pega do localStorage (login digitado) ou do cliente (se existir)
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+
+		// 1) preferir o usuário digitado no login (ex.: AWS, allware)
+		const rawUser = localStorage.getItem("aws_user");
+		if (rawUser && rawUser.trim()) {
+			setUsuarioLabel(rawUser.trim());
+			return;
+		}
+
+		// 2) fallback: tentar ler algo do aws_cliente se tiver
+		const rawCliente = localStorage.getItem("aws_cliente");
+		if (rawCliente) {
+			try {
+				const cliente = JSON.parse(rawCliente);
+				const nome =
+					cliente?.login ||
+					cliente?.usuario ||
+					cliente?.nomeUsuario ||
+					cliente?.nome ||
+					"—";
+				setUsuarioLabel(String(nome || "—"));
+				return;
+			} catch {
+				// ignora parse errado
+			}
+		}
+
+		setUsuarioLabel("—");
+	}, []);
+
 	// ====== CONTROLE DE DRAG DO BOTTOM SHEET (MOBILE) ======
 	const [dragOffset, setDragOffset] = useState(0); // quanto já desceu em px
 	const [isDragging, setIsDragging] = useState(false);
@@ -187,8 +222,7 @@ export default function Sidebar({ active }: SidebarProps) {
 					<div className="rounded-lg border p-3">
 						<div className="mb-1 font-medium text-gray-800">Usuário</div>
 						<div className="flex items-center justify-between">
-							<span className="text-gray-700">AWS</span>
-							<span className="text-gray-400">▾</span>
+							<span className="text-gray-700">{usuarioLabel}</span>
 						</div>
 					</div>
 				</div>
@@ -244,6 +278,9 @@ export default function Sidebar({ active }: SidebarProps) {
 						<div className="px-4 pb-2">
 							<div className="text-sm font-semibold text-gray-800">
 								AWSRegistro | Menu
+							</div>
+							<div className="mt-1 text-xs text-gray-600">
+								Usuário: <span className="font-medium text-gray-800">{usuarioLabel}</span>
 							</div>
 						</div>
 
