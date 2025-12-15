@@ -159,7 +159,7 @@ export default function LoginPage() {
 							checked={lembrar}
 							onChange={(e) => setLembrar(e.target.checked)}
 						/>
-						<label htmlFor="remember">Lembrar senha</label>
+						<label htmlFor="remember">Lembrar usuário</label>
 					</div>
 
 					<button

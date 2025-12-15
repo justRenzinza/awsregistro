@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
+			cache: "no-store",
 		});
 
 		const text = await upstream.text();
@@ -28,35 +29,63 @@ export async function POST(req: NextRequest) {
 		}
 
 		if (!upstream.ok) {
-			return NextResponse.json(data ?? { error: "Login falhou" }, {
-				status: upstream.status,
+			// ✅ se falhou, garante que não fica cookie antigo "fantasma"
+			const res = NextResponse.json(
+				data ?? { error: "Login falhou" },
+				{ status: upstream.status }
+			);
+			res.cookies.set("aws_token", "", {
+				httpOnly: true,
+				secure: process.env.NODE_ENV === "production",
+				sameSite: "lax",
+				path: "/",
+				maxAge: 0,
 			});
+			return res;
 		}
 
 		const token = data?.token;
-		if (!token) {
-			return NextResponse.json(
+		if (!token || typeof token !== "string") {
+			const res = NextResponse.json(
 				{ error: "Login OK, mas token não retornou" },
 				{ status: 500 }
 			);
+			res.cookies.set("aws_token", "", {
+				httpOnly: true,
+				secure: process.env.NODE_ENV === "production",
+				sameSite: "lax",
+				path: "/",
+				maxAge: 0,
+			});
+			return res;
 		}
 
 		const res = NextResponse.json(data, { status: 200 });
 
 		// ✅ Cookie httpOnly para o middleware conseguir bloquear/permitir rotas
+		// ✅ define expiração pra não ficar preso com token antigo no dev
 		res.cookies.set("aws_token", token, {
 			httpOnly: true,
 			secure: process.env.NODE_ENV === "production", // ✅ localhost funciona
 			sameSite: "lax",
 			path: "/",
-			// maxAge: 60 * 60 * 24, // opcional: 1 dia
+			maxAge: 60 * 60 * 8, // ✅ 8h (ajuste se quiser)
 		});
 
 		return res;
 	} catch (e: any) {
-		return NextResponse.json(
+		// ✅ em erro, também limpa cookie pra evitar redirecionamento errado
+		const res = NextResponse.json(
 			{ error: "Erro no login", detail: String(e?.message || e) },
 			{ status: 500 }
 		);
+		res.cookies.set("aws_token", "", {
+			httpOnly: true,
+			secure: process.env.NODE_ENV === "production",
+			sameSite: "lax",
+			path: "/",
+			maxAge: 0,
+		});
+		return res;
 	}
 }
