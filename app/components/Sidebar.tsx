@@ -18,19 +18,14 @@ type SidebarProps = {
 
 const items: { key: SidebarKey; label: string; href: string }[] = [
 	{
-		key: "atualizar-clientes",
-		label: "🔁 Atualizar Clientes",
-		href: "/atualizar-clientes",
-	},
-	{
-		key: "cadastro-sistema",
-		label: "⚙️ Cadastro de Sistema",
-		href: "/cadastro-sistema",
-	},
-	{
 		key: "clientes",
-		label: "👥 Clientes",
+		label: "👥 Cadastro de Clientes", //
 		href: "/clientes",
+	},
+	{
+		key: "controle-sistema",
+		label: "🧩 Cliente x Sistema",
+		href: "/controle-sistema",
 	},
 	{
 		key: "clientes-versao",
@@ -38,19 +33,24 @@ const items: { key: SidebarKey; label: string; href: string }[] = [
 		href: "/clientes-versao",
 	},
 	{
-		key: "controle-registro",
-		label: "📜 Controle de Registro",
-		href: "#",
-	},
-	{
-		key: "controle-sistema",
-		label: "🧩 Controle de Sistema",
-		href: "/controle-sistema",
+		key: "cadastro-sistema",
+		label: "⚙️ Cadastro de Sistema",
+		href: "/cadastro-sistema",
 	},
 	{
 		key: "versao-sistema",
-		label: "🗂️ Versão dos Sistemas",
+		label: "🗂️ Cadastro de Versão",
 		href: "/versao-sistema",
+	},
+	{
+		key: "atualizar-clientes",
+		label: "🔁 Atualizar Clientes",
+		href: "/atualizar-clientes",
+	},
+	{
+		key: "controle-registro",
+		label: "📜 Controle de Registro",
+		href: "#",
 	},
 ];
 
