@@ -223,7 +223,7 @@ export default function ClientesVersaoPage() {
 		<ul className="sm:hidden space-y-3">
 			{isLoading ? (
 				<li className="rounded-xl border bg-white p-8 text-center text-gray-500">
-					Carregando...
+					Carregando informações.
 				</li>
 			) : pageData.length === 0 ? (
 				<li className="rounded-xl border bg-white p-8 text-center text-gray-500">
@@ -357,7 +357,7 @@ export default function ClientesVersaoPage() {
 												colSpan={5}
 												className="px-3 py-8 text-left text-gray-500"
 											>
-												Carregando...
+												Carregando informações.
 											</td>
 										</tr>
 									) : pageData.length === 0 ? (

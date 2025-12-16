@@ -719,7 +719,7 @@ export default function AtualizarClientesPorVersaoPage() {
 													colSpan={6}
 													className="px-4 py-8 text-left text-gray-500"
 												>
-													Nenhum registro encontrado.
+													Carregando informações.
 												</td>
 											</tr>
 										) : (
@@ -781,7 +781,7 @@ export default function AtualizarClientesPorVersaoPage() {
 								</div>
 							) : pageData.length === 0 ? (
 								<div className="rounded-xl border bg-white p-6 text-center text-gray-500">
-									Nenhum registro encontrado.
+									Carregando informações.
 								</div>
 							) : (
 								pageData.map((r, idx) => {
