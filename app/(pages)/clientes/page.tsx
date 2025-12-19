@@ -101,7 +101,7 @@ function mapClienteFromApi(row: any): Cliente {
 		razaoSocial:
 			row.razaoSocial ??
 			row.razao_social ??
-			row.nome ?? // alguns backends usam "nome"
+			row.nome ??
 			row.nomeCliente ??
 			"",
 		cnpj: row.cnpj ?? row.cnpjCpf ?? row.cnpj_cpf ?? "",
@@ -143,8 +143,9 @@ export default function ClientesPage() {
 	const [sortKey, setSortKey] = useState<SortKey | null>(null);
 	const [sortDir, setSortDir] = useState<SortDir>(null);
 	const [rows, setRows] = useState<Cliente[]>([]);
+	const [loading, setLoading] = useState(true);
 
-	const [editingId, setEditingId] = useState<number | null>(null); // 0 = novo
+	const [editingId, setEditingId] = useState<number | null>(null);
 	const [editForm, setEditForm] = useState<Partial<Cliente>>({});
 	const [errors, setErrors] = useState<{
 		cnpj?: string;
@@ -152,18 +153,17 @@ export default function ClientesPage() {
 		razaoSocial?: string;
 	}>({});
 	const [originalCnpj, setOriginalCnpj] = useState<string | null>(null);
+	const [saving, setSaving] = useState(false);
 
-	/* ====== carregar dados do backend (nova rota listaclientes) ====== */
+	/* ====== carregar dados do backend ====== */
 	async function loadRows() {
 		try {
+			setLoading(true);
 			const data = await backendFetch("/autenticacao/listaclientes", {
 				method: "GET",
 			});
 
-			console.log(
-				"Resposta bruta da API /autenticacao/listaclientes:",
-				data
-			);
+			console.log("✅ Resposta da API /autenticacao/listaclientes:", data);
 
 			let lista: any[] = [];
 
@@ -193,10 +193,7 @@ export default function ClientesPage() {
 			}
 
 			if (!Array.isArray(lista)) {
-				console.warn(
-					"Não foi possível identificar a lista de clientes na resposta:",
-					data
-				);
+				console.warn("⚠️ Não foi possível identificar a lista de clientes:", data);
 				setRows([]);
 				return;
 			}
@@ -209,25 +206,24 @@ export default function ClientesPage() {
 				const key = String(
 					c.id || c.codigo || cnpjDigits || c.razaoSocial.toLowerCase()
 				);
-				if (!uniqueMap.has(key)) {
-					uniqueMap.set(key, c);
-				}
+				if (!uniqueMap.has(key)) uniqueMap.set(key, c);
 			}
 			let unique = Array.from(uniqueMap.values());
 
-			// remove do front clientes com contrato cancelado (idStatus = 3)
+			// remove clientes cancelados (idStatus = 3)
 			unique = unique.filter(
 				(c) =>
 					c.idStatus !== 3 &&
-					!String(c.status || "")
-						.toLowerCase()
-						.includes("cancelado")
+					!String(c.status || "").toLowerCase().includes("cancelado")
 			);
 
 			setRows(unique);
+			console.log(`✅ ${unique.length} clientes carregados`);
 		} catch (e) {
-			console.error("Falha ao buscar clientes no backend:", e);
-			alert("Não foi possível carregar os clientes do servidor.");
+			console.error("❌ Falha ao buscar clientes:", e);
+			alert("Não foi possível carregar os clientes. Verifique sua conexão.");
+		} finally {
+			setLoading(false);
 		}
 	}
 
@@ -281,11 +277,8 @@ export default function ClientesPage() {
 	}, [totalPages]);
 
 	useEffect(() => {
-		if (editingId !== null) {
-			document.body.style.overflow = "hidden";
-		} else {
-			document.body.style.overflow = "";
-		}
+		if (editingId !== null) document.body.style.overflow = "hidden";
+		else document.body.style.overflow = "";
 		return () => {
 			document.body.style.overflow = "";
 		};
@@ -315,22 +308,18 @@ export default function ClientesPage() {
 		if (!ok) return;
 
 		const cnpjDigits = (cliente.cnpj || "").replace(/\D/g, "");
-		const hojeISO = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
+		const hojeISO = new Date().toISOString().slice(0, 10);
 		const hojeBR = new Date().toLocaleDateString("pt-BR");
 
-		// payload conforme Swagger, focando na mudança de status (soft delete)
 		const payload = {
-			// campos principais
 			nome: cliente.razaoSocial,
 			cnpj: cnpjDigits,
 			dataRegistro: cliente.dataRegistro || hojeBR,
 			nomeContato: cliente.contato ?? "",
 			telefone: cliente.telefone ?? "",
 			email: cliente.email ?? "",
-			// se o backend usar esses campos, mantemos valores neutros
 			quantidadeLicenca: 0,
 			quantidadeDiaLiberacao: 0,
-			// status / controle
 			idStatus: 3,
 			status: "Irregular (Contrato Cancelado)",
 			idSistema: SISTEMA_ID,
@@ -342,18 +331,16 @@ export default function ClientesPage() {
 		};
 
 		try {
-			await backendFetch(
-				`/autenticacao/cliente/${cnpjDigits}/${SISTEMA_ID}`,
-				{
-					method: "PUT",
-					body: JSON.stringify(payload),
-				}
-			);
+			await backendFetch(`/autenticacao/cliente/${cnpjDigits}/${SISTEMA_ID}`, {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(payload),
+			});
 
-			// recarrega lista já sem o cliente cancelado
+			console.log(`✅ Cliente ${cnpjDigits} cancelado`);
 			await loadRows();
 		} catch (e) {
-			console.error("Falha ao cancelar cliente no backend:", e);
+			console.error("❌ Falha ao cancelar cliente:", e);
 			alert("Não foi possível cancelar o contrato do cliente.");
 		}
 	}
@@ -362,9 +349,7 @@ export default function ClientesPage() {
 		const c = rows.find((r) => r.id === id);
 		if (!c) return;
 		setEditingId(id);
-
 		setOriginalCnpj(c.cnpj?.replace(/\D/g, "") || null);
-
 		setEditForm({ ...c, cnpj: c.cnpj?.replace(/\D/g, "") });
 		setErrors({});
 	}
@@ -379,11 +364,7 @@ export default function ClientesPage() {
 	async function handleEditSave() {
 		if (editingId === null) return;
 
-		const errs: {
-			cnpj?: string;
-			email?: string;
-			razaoSocial?: string;
-		} = {};
+		const errs: { cnpj?: string; email?: string; razaoSocial?: string } = {};
 
 		const email = (editForm.email ?? "").trim();
 		const cnpjDigits = (editForm.cnpj ?? "").toString().replace(/\D/g, "");
@@ -400,47 +381,36 @@ export default function ClientesPage() {
 			return;
 		}
 
-		// payload no padrão do Swagger: nome, nomeContato etc
 		const payloadBase = {
-			// nomes "oficiais"
 			nome: razaoSocial,
 			nomeContato: editForm.contato ?? "",
-			// nomes usados em outros lugares da API (garante compatibilidade)
 			razaoSocial: razaoSocial,
 			contato: editForm.contato ?? "",
-			// campos básicos
 			cnpj: cnpjDigits,
-			dataRegistro:
-				editForm.dataRegistro ?? new Date().toLocaleDateString("pt-BR"),
+			dataRegistro: editForm.dataRegistro ?? new Date().toLocaleDateString("pt-BR"),
 			telefone: editForm.telefone ?? "",
 			email: email,
-			// se o backend usar isso no body, já está aqui também
 			idSistema: SISTEMA_ID,
 		};
 
 		try {
+			setSaving(true);
+
 			if (editingId === 0) {
-				// novo cliente
 				await backendFetch("/autenticacao/cliente", {
 					method: "POST",
-					body: JSON.stringify({
-						...payloadBase,
-					}),
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payloadBase),
 				});
+				console.log(`✅ Cliente ${cnpjDigits} criado`);
 			} else {
-				// alteração de cliente existente
-				// IdCliente na URL = CNPJ ANTIGO
 				const pathCnpj = originalCnpj || cnpjDigits;
-
-				await backendFetch(
-					`/autenticacao/cliente/${pathCnpj}/${SISTEMA_ID}`,
-					{
-						method: "PUT",
-						body: JSON.stringify({
-							...payloadBase,
-						}),
-					}
-				);
+				await backendFetch(`/autenticacao/cliente/${pathCnpj}/${SISTEMA_ID}`, {
+					method: "PUT",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payloadBase),
+				});
+				console.log(`✅ Cliente ${pathCnpj} atualizado`);
 			}
 
 			setEditingId(null);
@@ -449,8 +419,10 @@ export default function ClientesPage() {
 			setOriginalCnpj(null);
 			await loadRows();
 		} catch (e) {
-			console.error("Falha ao salvar cliente no backend:", e);
-			alert("Não foi possível salvar o cliente.");
+			console.error("❌ Falha ao salvar cliente:", e);
+			alert("Não foi possível salvar o cliente. Verifique os dados.");
+		} finally {
+			setSaving(false);
 		}
 	}
 
@@ -479,10 +451,7 @@ export default function ClientesPage() {
 	const MobileList = () => (
 		<ul className="sm:hidden space-y-3">
 			{pageData.map((r, idx) => (
-				<li
-					key={`${page}-${idx}`}
-					className="rounded-xl border bg-white p-4 shadow"
-				>
+				<li key={`${page}-${idx}`} className="rounded-xl border bg-white p-4 shadow">
 					<div className="flex items-start gap-3">
 						<div className="min-w-0 flex-1">
 							<div className="text-sm text-gray-500">Código {r.codigo}</div>
@@ -513,8 +482,7 @@ export default function ClientesPage() {
 
 					<div className="mt-2 grid grid-cols-1 gap-1 text-sm text-gray-700">
 						<div>
-							<span className="text-gray-500">CNPJ:</span>{" "}
-							{formatCNPJ(r.cnpj)}
+							<span className="text-gray-500">CNPJ:</span> {formatCNPJ(r.cnpj)}
 						</div>
 						<div>
 							<span className="text-gray-500">Data:</span> {r.dataRegistro}
@@ -529,10 +497,7 @@ export default function ClientesPage() {
 						<div className="break-all">
 							<span className="text-gray-500">Email:</span>{" "}
 							{isValidEmail(r.email) ? (
-								<a
-									href={`mailto:${r.email}`}
-									className="underline underline-offset-2"
-								>
+								<a href={`mailto:${r.email}`} className="underline underline-offset-2">
 									{r.email}
 								</a>
 							) : (
@@ -542,7 +507,7 @@ export default function ClientesPage() {
 					</div>
 				</li>
 			))}
-			{pageData.length === 0 && (
+			{pageData.length === 0 && !loading && (
 				<li className="rounded-xl border bg-white p-8 text-center text-gray-500">
 					Nenhum registro encontrado.
 				</li>
@@ -557,12 +522,11 @@ export default function ClientesPage() {
 
 				<div className="flex-1">
 					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b flex items-center justify-center">
-						<div className="font-semibold text-white">
-							Clientes
-						</div>
+						<div className="font-semibold text-white">Clientes</div>
 					</div>
 
-					<main className="mx-auto max-w-7xl p-4 md:p-6">
+					{/* ✅ AQUI: aumentei o max-width no desktop pra tabela caber melhor */}
+					<main className="mx-auto w-full max-w-[95rem] p-4 md:p-6">
 						<div className="mb-4 space-y-2">
 							{/* mobile */}
 							<div className="flex flex-wrap items-center gap-2 sm:hidden w-full">
@@ -630,11 +594,12 @@ export default function ClientesPage() {
 						<MobileList />
 
 						<div className="hidden sm:block rounded-xl bg-white shadow overflow-hidden">
-							<div className="w-full overflow-x-auto">
-								<table className="min-w-full border-separate border-spacing-0 text-sm">
+							{/* ✅ aqui: removi overflow-x-auto e usei table-fixed + widths melhores */}
+							<div className="w-full">
+								<table className="w-full table-fixed border-separate border-spacing-0 text-sm">
 									<thead>
 										<tr className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-											<th className="px-3 py-3 w-28 text-left whitespace-nowrap">
+											<th className="px-3 py-3 w-24 text-left whitespace-nowrap">
 												Ações
 											</th>
 											<th
@@ -660,18 +625,14 @@ export default function ClientesPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 w-44 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("cnpj")}
 											>
 												CNPJ{" "}
-												{sortKey === "cnpj"
-													? sortDir === "asc"
-														? "▲"
-														: "▼"
-													: ""}
+												{sortKey === "cnpj" ? (sortDir === "asc" ? "▲" : "▼") : ""}
 											</th>
 											<th
-												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 w-32 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("dataRegistro")}
 											>
 												Data Registro{" "}
@@ -682,7 +643,7 @@ export default function ClientesPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 w-44 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("contato")}
 											>
 												Contato{" "}
@@ -693,7 +654,7 @@ export default function ClientesPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 w-44 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("telefone")}
 											>
 												Telefone{" "}
@@ -704,15 +665,11 @@ export default function ClientesPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
+												className="px-3 py-3 w-64 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("email")}
 											>
 												Email{" "}
-												{sortKey === "email"
-													? sortDir === "asc"
-														? "▲"
-														: "▼"
-													: ""}
+												{sortKey === "email" ? (sortDir === "asc" ? "▲" : "▼") : ""}
 											</th>
 										</tr>
 									</thead>
@@ -748,32 +705,38 @@ export default function ClientesPage() {
 													{r.codigo}
 												</td>
 
-												<td
-													className="px-3 py-3 text-left max-w-[18rem] truncate"
-													title={r.razaoSocial}
-												>
-													{r.razaoSocial}
+												<td className="px-3 py-3 text-left">
+													<div className="truncate" title={r.razaoSocial}>
+														{r.razaoSocial}
+													</div>
 												</td>
 
 												<td className="px-3 py-3 whitespace-nowrap text-left">
 													{formatCNPJ(r.cnpj)}
 												</td>
+
 												<td className="px-3 py-3 whitespace-nowrap text-left">
 													{r.dataRegistro}
 												</td>
+
 												<td className="px-3 py-3 whitespace-nowrap text-left">
 													{r.contato}
 												</td>
+
 												<td className="px-3 py-3 whitespace-nowrap text-left">
 													{formatPhone(r.telefone)}
 												</td>
+
 												<td className="px-3 py-3 whitespace-nowrap text-left">
 													{isValidEmail(r.email) ? (
 														<a
 															href={`mailto:${r.email}`}
 															className="underline-offset-2 hover:underline"
+															title={r.email}
 														>
-															{r.email}
+															<span className="truncate inline-block max-w-full">
+																{r.email}
+															</span>
 														</a>
 													) : (
 														<span className="text-gray-400">—</span>
@@ -784,10 +747,7 @@ export default function ClientesPage() {
 
 										{pageData.length === 0 && (
 											<tr>
-												<td
-													className="px-3 py-8 text-center text-gray-500"
-													colSpan={8}
-												>
+												<td className="px-3 py-8 text-center text-gray-500" colSpan={8}>
 													Nenhum registro encontrado.
 												</td>
 											</tr>
@@ -801,11 +761,7 @@ export default function ClientesPage() {
 							<div className="text-sm text-gray-700">
 								{filtered.length} registro(s) • Página {page} de {totalPages}
 							</div>
-							<div
-								className="flex items-center gap-2"
-								role="navigation"
-								aria-label="Paginação"
-							>
+							<div className="flex items-center gap-2" role="navigation" aria-label="Paginação">
 								<button
 									className="flex text-sm items-center justify-center rounded-xl bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
 									onClick={() => setPage(1)}
@@ -824,9 +780,7 @@ export default function ClientesPage() {
 								</button>
 								<button
 									className="flex text-sm items-center justify-center rounded-xl bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
-									onClick={() =>
-										setPage((p) => Math.min(totalPages, p + 1))
-									}
+									onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
 									disabled={page === totalPages}
 									aria-label="Próxima página"
 								>
@@ -847,12 +801,7 @@ export default function ClientesPage() {
 			</div>
 
 			{editingId !== null && (
-				<div
-					className="fixed inset-0 z-50"
-					role="dialog"
-					aria-modal="true"
-					aria-label={editingId === 0 ? "Adicionar Cliente" : "Editar Cliente"}
-				>
+				<div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={editingId === 0 ? "Adicionar Cliente" : "Editar Cliente"}>
 					<div className="absolute inset-0 bg-black/50" />
 					<div className="absolute inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-3">
 						<div className="h-full w-full sm:h-auto sm:w-full sm:max-w-2xl rounded-none sm:rounded-xl bg-white shadow-lg overflow-y-auto">
@@ -874,65 +823,43 @@ export default function ClientesPage() {
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											disabled={editingId !== 0}
 										/>
 									</label>
 
 									<label className="text-sm">
-										<span className="mb-1 block text-black">Razão Social</span>
+										<span className="mb-1 block text-black">Razão Social *</span>
 										<input
 											type="text"
 											value={editForm.razaoSocial ?? ""}
 											onChange={(e) => {
 												const v = e.target.value;
-												setEditForm((prev) => ({
-													...prev,
-													razaoSocial: v,
-												}));
+												setEditForm((prev) => ({ ...prev, razaoSocial: v }));
 												setErrors((prev) => ({
 													...prev,
-													razaoSocial: v.trim()
-														? undefined
-														: "Razão social é obrigatória.",
+													razaoSocial: v.trim() ? undefined : "Razão social é obrigatória.",
 												}));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
-												errors.razaoSocial
-													? "border-red-500"
-													: "border-gray-300"
+												errors.razaoSocial ? "border-red-500" : "border-gray-300"
 											} text-black`}
 										/>
 										{errors.razaoSocial && (
-											<p className="mt-1 text-xs text-red-600">
-												{errors.razaoSocial}
-											</p>
+											<p className="mt-1 text-xs text-red-600">{errors.razaoSocial}</p>
 										)}
 									</label>
 
 									<label className="text-sm">
-										<span className="mb-1 block text-black">CNPJ</span>
+										<span className="mb-1 block text-black">CNPJ *</span>
 										<input
 											type="text"
 											value={editForm.cnpj ?? ""}
 											onChange={(e) => {
-												const digits = e.target.value
-													.replace(/\D/g, "")
-													.slice(0, 14);
+												const digits = e.target.value.replace(/\D/g, "").slice(0, 14);
 												setEditForm((prev) => ({ ...prev, cnpj: digits }));
-												if (!digits)
-													setErrors((prev) => ({
-														...prev,
-														cnpj: "CNPJ é obrigatório.",
-													}));
-												else if (!isValidCNPJ(digits))
-													setErrors((prev) => ({
-														...prev,
-														cnpj: "CNPJ inválido.",
-													}));
-												else
-													setErrors((prev) => ({
-														...prev,
-														cnpj: undefined,
-													}));
+												if (!digits) setErrors((prev) => ({ ...prev, cnpj: "CNPJ é obrigatório." }));
+												else if (!isValidCNPJ(digits)) setErrors((prev) => ({ ...prev, cnpj: "CNPJ inválido." }));
+												else setErrors((prev) => ({ ...prev, cnpj: undefined }));
 											}}
 											onBlur={() => {
 												setEditForm((prev) => ({
@@ -945,9 +872,7 @@ export default function ClientesPage() {
 											} text-black`}
 										/>
 										{errors.cnpj && (
-											<p className="mt-1 text-xs text-red-600">
-												{errors.cnpj}
-											</p>
+											<p className="mt-1 text-xs text-red-600">{errors.cnpj}</p>
 										)}
 									</label>
 
@@ -956,12 +881,7 @@ export default function ClientesPage() {
 										<input
 											type="text"
 											value={editForm.dataRegistro ?? ""}
-											onChange={(e) =>
-												setEditForm((prev) => ({
-													...prev,
-													dataRegistro: e.target.value,
-												}))
-											}
+											onChange={(e) => setEditForm((prev) => ({ ...prev, dataRegistro: e.target.value }))}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 											placeholder="dd/mm/aaaa"
 										/>
@@ -972,12 +892,7 @@ export default function ClientesPage() {
 										<input
 											type="text"
 											value={editForm.contato ?? ""}
-											onChange={(e) =>
-												setEditForm((prev) => ({
-													...prev,
-													contato: e.target.value,
-												}))
-											}
+											onChange={(e) => setEditForm((prev) => ({ ...prev, contato: e.target.value }))}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 									</label>
@@ -987,48 +902,29 @@ export default function ClientesPage() {
 										<input
 											type="text"
 											value={editForm.telefone ?? ""}
-											onChange={(e) =>
-												setEditForm((prev) => ({
-													...prev,
-													telefone: e.target.value,
-												}))
-											}
+											onChange={(e) => setEditForm((prev) => ({ ...prev, telefone: e.target.value }))}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 									</label>
 
 									<label className="text-sm md:col-span-2">
-										<span className="mb-1 block text-black">Email</span>
+										<span className="mb-1 block text-black">Email *</span>
 										<input
 											type="email"
 											value={editForm.email ?? ""}
 											onChange={(e) => {
 												const v = e.target.value;
 												setEditForm((prev) => ({ ...prev, email: v }));
-												if (!v)
-													setErrors((prev) => ({
-														...prev,
-														email: "Email é obrigatório.",
-													}));
-												else if (!isValidEmail(v))
-													setErrors((prev) => ({
-														...prev,
-														email: "Email inválido.",
-													}));
-												else
-													setErrors((prev) => ({
-														...prev,
-														email: undefined,
-													}));
+												if (!v) setErrors((prev) => ({ ...prev, email: "Email é obrigatório." }));
+												else if (!isValidEmail(v)) setErrors((prev) => ({ ...prev, email: "Email inválido." }));
+												else setErrors((prev) => ({ ...prev, email: undefined }));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
 												errors.email ? "border-red-500" : "border-gray-300"
 											} text-black`}
 										/>
 										{errors.email && (
-											<p className="mt-1 text-xs text-red-600">
-												{errors.email}
-											</p>
+											<p className="mt-1 text-xs text-red-600">{errors.email}</p>
 										)}
 									</label>
 								</div>
@@ -1036,15 +932,20 @@ export default function ClientesPage() {
 								<div className="mt-6 flex justify-end gap-2">
 									<button
 										onClick={handleEditCancel}
-										className="rounded-xl bg-red-400 px-4 py-2 text-white hover:bg-red-500 transform transition-transform hover:scale-105"
+										disabled={saving}
+										className="rounded-xl bg-red-400 px-4 py-2 text-white hover:bg-red-500 transform transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
 									>
 										Cancelar
 									</button>
 									<button
 										onClick={handleEditSave}
-										className="rounded-xl bg-green-500 px-4 py-2 text-white hover:bg-green-600 transform transition-transform hover:scale-105"
+										disabled={saving}
+										className="rounded-xl bg-green-500 px-4 py-2 text-white hover:bg-green-600 transform transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
 									>
-										Salvar
+										{saving && (
+											<div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-white border-r-transparent"></div>
+										)}
+										{saving ? "Salvando..." : "Salvar"}
 									</button>
 								</div>
 							</div>

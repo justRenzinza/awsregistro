@@ -9,6 +9,24 @@ type Sistema = {
 	nome: string;
 };
 
+function normalizeList(resp: any): any[] {
+	if (!resp) return [];
+	if (Array.isArray(resp)) return resp;
+	if (Array.isArray(resp?.data)) return resp.data;
+	if (Array.isArray(resp?.items)) return resp.items;
+	if (Array.isArray(resp?.result)) return resp.result;
+	if (Array.isArray(resp?.value)) return resp.value;
+	if (Array.isArray(resp?.$values)) return resp.$values;
+	if (Array.isArray(resp?.lista)) return resp.lista;
+	if (Array.isArray(resp?.sistemas)) return resp.sistemas;
+	return [];
+}
+
+function isFallbackStatus(err: any) {
+	const s = Number(err?.status ?? 0);
+	return s === 404 || s === 405;
+}
+
 export default function CadastroSistemaPage() {
 	/* ===== Estados ===== */
 	const [nome, setNome] = useState("");
@@ -31,13 +49,8 @@ export default function CadastroSistemaPage() {
 
 			console.log("Sistemas carregados:", resp);
 
-			if (Array.isArray(resp)) {
-				setSistemas(resp);
-			} else if (Array.isArray(resp?.data)) {
-				setSistemas(resp.data);
-			} else {
-				setSistemas([]);
-			}
+			const list = normalizeList(resp);
+			setSistemas(Array.isArray(list) ? list : []);
 		} catch (e) {
 			console.error("Erro ao carregar sistemas:", e);
 			setError("Não foi possível carregar os sistemas.");
@@ -54,7 +67,8 @@ export default function CadastroSistemaPage() {
 		setError(null);
 		setSuccess(null);
 
-		if (!nome.trim()) {
+		const nomeTrim = nome.trim();
+		if (!nomeTrim) {
 			setError("Informe o nome do sistema.");
 			return;
 		}
@@ -62,18 +76,41 @@ export default function CadastroSistemaPage() {
 		try {
 			setLoading(true);
 
-			// Se está editando → PUT
+			// payload conforme Swagger
+			const payload = {
+				id: idEditando ?? 0,
+				nome: nomeTrim,
+				observacao: "", // mantém compatibilidade sem alterar UI
+			};
+
+			// Se está editando → tenta PUT /sistema/{id}
 			if (idEditando !== null) {
-				await backendFetch(`/sistema/${idEditando}`, {
-					method: "PUT",
-					body: JSON.stringify({ nome }),
-				});
+				try {
+					await backendFetch(`/sistema/${idEditando}`, {
+						method: "PUT",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify(payload),
+					});
+				} catch (err: any) {
+					// fallback: alguns backends fazem update via POST /sistema (upsert)
+					if (isFallbackStatus(err)) {
+						await backendFetch(`/sistema`, {
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify(payload),
+						});
+					} else {
+						throw err;
+					}
+				}
+
 				setSuccess("Sistema atualizado com sucesso!");
 			} else {
-				// Novo cadastro → POST
+				// Novo cadastro → POST /sistema
 				await backendFetch(`/sistema`, {
 					method: "POST",
-					body: JSON.stringify({ nome }),
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payload),
 				});
 				setSuccess("Sistema cadastrado com sucesso!");
 			}
@@ -81,8 +118,12 @@ export default function CadastroSistemaPage() {
 			setNome("");
 			setIdEditando(null);
 			loadSistemas();
-		} catch (e) {
-			console.error(e);
+		} catch (e: any) {
+			console.error("Erro ao salvar sistema:", {
+				message: e?.message,
+				status: e?.status,
+				data: e?.data,
+			});
 			setError("Erro ao salvar sistema.");
 		} finally {
 			setLoading(false);
@@ -110,7 +151,18 @@ export default function CadastroSistemaPage() {
 		if (!confirm("Deseja realmente excluir este sistema?")) return;
 
 		try {
-			await backendFetch(`/sistema/${id}`, { method: "DELETE" });
+			// tenta DELETE /sistema/{id}
+			try {
+				await backendFetch(`/sistema/${id}`, { method: "DELETE" });
+			} catch (err: any) {
+				// fallback comum: DELETE /sistema?id=123
+				if (isFallbackStatus(err)) {
+					await backendFetch(`/sistema?id=${id}`, { method: "DELETE" });
+				} else {
+					throw err;
+				}
+			}
+
 			loadSistemas();
 		} catch (e) {
 			console.error(e);
@@ -140,7 +192,7 @@ export default function CadastroSistemaPage() {
 						<div className="rounded-xl bg-white shadow mb-6">
 							<div className="border-b px-4 py-3 sm:px-6">
 								<h2 className="text-lg font-semibold text-gray-800">
-									{ idEditando ? "Editar Sistema" : "Cadastro de Sistema" }
+									{idEditando ? "Editar Sistema" : "Cadastro de Sistema"}
 								</h2>
 								<p className="text-sm text-gray-500">
 									Informe o nome do sistema abaixo.

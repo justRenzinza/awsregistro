@@ -91,11 +91,7 @@ function mapRowFromApi(row: any): ClienteVersaoRow {
 		"";
 
 	const sistemaNome =
-		row.sistema ??
-		row.nomeSistema ??
-		row.nome_sistema ??
-		row.sistemaNome ??
-		"";
+		row.sistema ?? row.nomeSistema ?? row.nome_sistema ?? row.sistemaNome ?? "";
 
 	return {
 		id: Number(row.id ?? 0),
@@ -182,7 +178,7 @@ export default function AtualizarClientesPorVersaoPage() {
 	async function loadSistemas() {
 		try {
 			console.log("🔍 Tentando carregar /sistema...");
-			
+
 			const data = await backendFetch("/sistema", {
 				method: "GET",
 			});
@@ -190,7 +186,10 @@ export default function AtualizarClientesPorVersaoPage() {
 			console.log("📊 Resposta completa de /sistema:", data);
 			console.log("📊 Tipo da resposta:", typeof data);
 			console.log("📊 É array?", Array.isArray(data));
-			console.log("📊 Quantidade de itens:", Array.isArray(data) ? data.length : "não é array");
+			console.log(
+				"📊 Quantidade de itens:",
+				Array.isArray(data) ? data.length : "não é array"
+			);
 
 			let lista: any[] = [];
 			if (Array.isArray(data)) {
@@ -248,10 +247,7 @@ export default function AtualizarClientesPorVersaoPage() {
 			setSistemas(mapped);
 			setSistemaSelecionado(mapped[0]);
 		} catch (e) {
-			console.error(
-				"[AtualizarClientes] Erro ao carregar /sistema:",
-				e
-			);
+			console.error("[AtualizarClientes] Erro ao carregar /sistema:", e);
 			setSistemas([]);
 			setSistemaSelecionado(undefined);
 		}
@@ -304,24 +300,26 @@ export default function AtualizarClientesPorVersaoPage() {
 			// Transforma cada cliente.sistemas[] em linhas da tabela
 			const todasAsLinhas: ClienteVersaoRow[] = [];
 			const chavesUnicas = new Set<string>(); // Evita duplicatas
-			
+
 			for (const cliente of listaClientes) {
 				const sistemasDoCliente = cliente.sistemas || [];
-				
+
 				for (const sistema of sistemasDoCliente) {
 					// Só adiciona se for do sistema selecionado
 					if (sistema.idSistema === sistemaSelecionado.id) {
 						// Chave única: idCliente-idSistema
 						const chaveUnica = `${cliente.id}-${sistema.idSistema}`;
-						
+
 						// Se já existe essa combinação, pula
 						if (chavesUnicas.has(chaveUnica)) {
-							console.log(`⚠️ Duplicata ignorada: Cliente ${cliente.nome} (${cliente.id}) - Sistema ${sistema.idSistema}`);
+							console.log(
+								`⚠️ Duplicata ignorada: Cliente ${cliente.nome} (${cliente.id}) - Sistema ${sistema.idSistema}`
+							);
 							continue;
 						}
-						
+
 						chavesUnicas.add(chaveUnica);
-						
+
 						const row: ClienteVersaoRow = {
 							id: sistema.id ?? 0,
 							idCliente: cliente.id ?? 0,
@@ -350,7 +348,10 @@ export default function AtualizarClientesPorVersaoPage() {
 				}
 			}
 
-			console.log("✅ Total de linhas para o sistema selecionado:", todasAsLinhas.length);
+			console.log(
+				"✅ Total de linhas para o sistema selecionado:",
+				todasAsLinhas.length
+			);
 
 			setRows(todasAsLinhas);
 			setSelectedKeys([]);
@@ -425,29 +426,35 @@ export default function AtualizarClientesPorVersaoPage() {
 
 	/* ===== payload PUT /clientesistema/{id} ===== */
 
+	// ✅ Ajuste: payload "mais seguro" (sem campos que costumam derrubar o backend)
 	function buildClienteSistemaPayload(
 		row: ClienteVersaoRow,
 		novaVersao: string,
 		dataVersaoISO: string
 	) {
+		const versaoAnteriorSeguro = row.versaoAtual ?? row.versaoAnterior ?? "";
+
 		return {
-			id: row.id,
-			idCliente: row.idCliente,
-			idSistema: row.idSistema,
+			id: Number(row.id ?? 0),
+			idCliente: Number(row.idCliente ?? 0),
+			idSistema: Number(row.idSistema ?? 0),
+
 			nome: row.nomeBruto || row.cliente,
 			observacao: row.observacao ?? "",
-			quantidadeLicenca: row.quantidadeLicenca ?? 0,
-			quantidadeDiaLiberacao: row.quantidadeDiaLiberacao ?? 0,
-			idStatus: row.idStatus ?? 0,
-			status: row.status ?? "",
+
+			quantidadeLicenca: Number(row.quantidadeLicenca ?? 0),
+			quantidadeDiaLiberacao: Number(row.quantidadeDiaLiberacao ?? 0),
+			idStatus: Number(row.idStatus ?? 0),
 			observacaoStatus: `Versão atualizada para ${novaVersao} em ${dataVersaoISO}`,
-			versaoAnterior: row.versaoAtual ?? row.versaoAnterior ?? "",
-			versaoAtual: novaVersao,
-			dataAtualizacao: dataVersaoISO,
-			passoAtualizacao: row.passoAtualizacao ?? 0,
-			quantidadeBancoDados: row.quantidadeBancoDados ?? 0,
-			quantidadeCnpj: row.quantidadeCnpj ?? 0,
-			portaMblock: row.portaMblock ?? 0,
+
+			versaoAnterior: String(versaoAnteriorSeguro ?? ""),
+			versaoAtual: String(novaVersao),
+			dataAtualizacao: String(dataVersaoISO),
+
+			passoAtualizacao: Number(row.passoAtualizacao ?? 0),
+			quantidadeBancoDados: Number(row.quantidadeBancoDados ?? 0),
+			quantidadeCnpj: Number(row.quantidadeCnpj ?? 0),
+			portaMblock: Number(row.portaMblock ?? 0),
 			ipMblock: row.ipMblock ?? "",
 		};
 	}
@@ -487,18 +494,23 @@ export default function AtualizarClientesPorVersaoPage() {
 				);
 				if (!row) continue;
 
-				const payload = buildClienteSistemaPayload(
-					row,
-					versao,
-					dataVersaoISO
-				);
+				if (!row.id || Number(row.id) <= 0) {
+					console.warn(
+						"[AtualizarClientes] Linha sem id válido (clientesistema). Ignorando:",
+						row
+					);
+					continue;
+				}
 
+				const payload = buildClienteSistemaPayload(row, versao, dataVersaoISO);
 				const path = `/clientesistema/${row.id}`;
 
 				console.log("Atualizando cliente/sistema:", { path, payload });
 
+				// ✅ CORREÇÃO PRINCIPAL: Content-Type no PUT
 				await backendFetch(path, {
 					method: "PUT",
+					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
 			}
@@ -550,8 +562,8 @@ export default function AtualizarClientesPorVersaoPage() {
 							Atualizar Clientes por Versão
 						</h1>
 						<p className="text-sm text-gray-600 mb-4">
-							Selecione o sistema, informe a versão e a data, depois
-							escolha os clientes que receberão a atualização.
+							Selecione o sistema, informe a versão e a data, depois escolha os
+							clientes que receberão a atualização.
 						</p>
 
 						{/* filtros / cabeçalho */}
@@ -632,9 +644,7 @@ export default function AtualizarClientesPorVersaoPage() {
 										{novaVersao || "—"}
 									</span>{" "}
 									• Data:{" "}
-									<span className="font-medium text-gray-800">
-										{resumoData}
-									</span>
+									<span className="font-medium text-gray-800">{resumoData}</span>
 								</div>
 							</div>
 						</div>
@@ -706,19 +716,13 @@ export default function AtualizarClientesPorVersaoPage() {
 									<tbody className="text-gray-900">
 										{isLoading ? (
 											<tr>
-												<td
-													colSpan={6}
-													className="px-4 py-8 text-left text-gray-500"
-												>
+												<td colSpan={6} className="px-4 py-8 text-left text-gray-500">
 													Carregando...
 												</td>
 											</tr>
 										) : pageData.length === 0 ? (
 											<tr>
-												<td
-													colSpan={6}
-													className="px-4 py-8 text-left text-gray-500"
-												>
+												<td colSpan={6} className="px-4 py-8 text-left text-gray-500">
 													Carregando informações.
 												</td>
 											</tr>
@@ -740,9 +744,7 @@ export default function AtualizarClientesPorVersaoPage() {
 															<input
 																type="checkbox"
 																checked={selected}
-																onChange={() =>
-																	toggleRowSelection(r)
-																}
+																onChange={() => toggleRowSelection(r)}
 																aria-label={`Selecionar cliente ${r.cliente} - ${r.sistema}`}
 															/>
 														</td>
@@ -755,9 +757,7 @@ export default function AtualizarClientesPorVersaoPage() {
 														>
 															{r.cliente}
 														</td>
-														<td className="px-3 py-3 text-left">
-															{r.sistema}
-														</td>
+														<td className="px-3 py-3 text-left">{r.sistema}</td>
 														<td className="px-3 py-3 text-left">
 															{r.versaoAtual || "—"}
 														</td>
@@ -809,15 +809,11 @@ export default function AtualizarClientesPorVersaoPage() {
 											</div>
 											<div className="mt-2 text-xs text-gray-700 space-y-1">
 												<div>
-													<span className="text-gray-500">
-														Versão atual:
-													</span>{" "}
+													<span className="text-gray-500">Versão atual:</span>{" "}
 													{r.versaoAtual || "—"}
 												</div>
 												<div>
-													<span className="text-gray-500">
-														Versão anterior:
-													</span>{" "}
+													<span className="text-gray-500">Versão anterior:</span>{" "}
 													{r.versaoAnterior || "—"}
 												</div>
 											</div>
@@ -830,8 +826,8 @@ export default function AtualizarClientesPorVersaoPage() {
 						{/* footer */}
 						<div className="mt-4 flex flex-wrap items-center justify-between gap-3">
 							<div className="text-sm text-gray-700">
-								{filtered.length} registro(s) • Página {page} de{" "}
-								{totalPages} • {selectedKeys.length} linha(s) selecionada(s)
+								{filtered.length} registro(s) • Página {page} de {totalPages} •{" "}
+								{selectedKeys.length} linha(s) selecionada(s)
 							</div>
 
 							<div className="flex items-center gap-2">
@@ -853,9 +849,7 @@ export default function AtualizarClientesPorVersaoPage() {
 								</button>
 								<button
 									className="flex text-sm items-center justify-center rounded-xl bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
-									onClick={() =>
-										setPage((p) => Math.min(totalPages, p + 1))
-									}
+									onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
 									disabled={page === totalPages}
 									aria-label="Próxima página"
 								>
@@ -881,9 +875,7 @@ export default function AtualizarClientesPorVersaoPage() {
 									}
 									className="ml-2 inline-flex items-center justify-center rounded-xl bg-green-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
 								>
-									{isUpdating
-										? "Atualizando..."
-										: "Atualizar clientes selecionados"}
+									{isUpdating ? "Atualizando..." : "Atualizar clientes selecionados"}
 								</button>
 							</div>
 						</div>
