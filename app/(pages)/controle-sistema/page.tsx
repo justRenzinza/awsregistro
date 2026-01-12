@@ -106,66 +106,6 @@ function mapSistemaFromApi(row: any): Sistema {
 	return { id, nome };
 }
 
-function mapControleFromClienteSistema(row: any): ControleSistema {
-	const toSmallInt = (
-		value: any,
-		defaultValue: number = 0,
-		limit: number = 100000
-	): number => {
-		if (value === null || value === undefined) return defaultValue;
-
-		if (typeof value === "number") {
-			if (!Number.isFinite(value)) return defaultValue;
-			const n = Math.trunc(value);
-			return Math.abs(n) > limit ? defaultValue : n;
-		}
-
-		const s = String(value).trim();
-		if (!s) return defaultValue;
-
-		const direct = Number(s.replace(",", "."));
-		if (Number.isFinite(direct)) {
-			const n = Math.trunc(direct);
-			return Math.abs(n) > limit ? defaultValue : n;
-		}
-
-		const digits = s.replace(/[^\d-]/g, "");
-		if (!digits) return defaultValue;
-
-		const n2 = Number(digits);
-		if (!Number.isFinite(n2)) return defaultValue;
-
-		const n = Math.trunc(n2);
-		return Math.abs(n) > limit ? defaultValue : n;
-	};
-
-	const lic = toSmallInt(row?.quantidadeLicenca, 0, 10000);
-	const dias = toSmallInt(row?.quantidadeDiaLiberacao, 0, 3650);
-
-	return {
-		id: toSmallInt(row?.id, 0, 1_000_000_000),
-		clienteId: toSmallInt(row?.idCliente, 0, 1_000_000_000),
-		idSistema: toSmallInt(row?.idSistema, 0, 1_000_000_000),
-		sistema: String(row?.nome ?? ""),
-		qtdLicenca: lic,
-		qtdDiaLiberacao: dias,
-		status: row?.status || "Regular",
-		idStatus: toSmallInt(row?.idStatus, 0, 10) || undefined,
-		qtdBanco: toSmallInt(row?.quantidadeBancoDados, 0, 10000),
-		qtdCnpj: toSmallInt(row?.quantidadeCnpj, 0, 10000),
-		ipMblock: row?.ipMblock ?? null,
-		portaMblock:
-			row?.portaMblock !== undefined && row?.portaMblock !== null
-				? String(row.portaMblock)
-				: null,
-		observacao: row?.observacaoStatus ?? row?.observacao ?? null,
-	};
-}
-
-function isUnauthorized(e: any) {
-	return e?.status === 401;
-}
-
 /* ===== helpers STATUS ===== */
 
 function statusLabelFromId(id: number): StatusContrato {
@@ -192,6 +132,62 @@ function statusIdFromLabel(label: string | null | undefined): number {
 	return 1;
 }
 
+function isUnauthorized(e: any) {
+	return e?.status === 401;
+}
+
+/* ===== parse num seguro (evita valores absurdos tipo 57429800) ===== */
+function toSafeInt(value: any, defaultValue = 0, limit = 100000): number {
+	if (value === null || value === undefined) return defaultValue;
+
+	if (typeof value === "number") {
+		if (!Number.isFinite(value)) return defaultValue;
+		const n = Math.trunc(value);
+		return Math.abs(n) > limit ? defaultValue : n;
+	}
+
+	const s = String(value).trim();
+	if (!s) return defaultValue;
+
+	// tenta número direto (aceita "10", "10.5", "10,5")
+	const direct = Number(s.replace(",", "."));
+	if (Number.isFinite(direct)) {
+		const n = Math.trunc(direct);
+		return Math.abs(n) > limit ? defaultValue : n;
+	}
+
+	// fallback: só dígitos
+	const digits = s.replace(/[^\d-]/g, "");
+	if (!digits) return defaultValue;
+
+	const n2 = Number(digits);
+	if (!Number.isFinite(n2)) return defaultValue;
+
+	const n = Math.trunc(n2);
+	return Math.abs(n) > limit ? defaultValue : n;
+}
+
+function mapControleFromClienteSistema(row: any): ControleSistema {
+	return {
+		id: toSafeInt(row?.id, 0, 1_000_000_000),
+		clienteId: toSafeInt(row?.idCliente, 0, 1_000_000_000),
+		idSistema: toSafeInt(row?.idSistema, 0, 1_000_000_000),
+		sistema: String(row?.nome ?? ""),
+		qtdLicenca: toSafeInt(row?.quantidadeLicenca, 0, 100000),
+		qtdDiaLiberacao: toSafeInt(row?.quantidadeDiaLiberacao, 0, 100000),
+		status: row?.status ?? row?.descricaoStatus ?? "Regular",
+		idStatus: toSafeInt(row?.idStatus, 0, 10) || undefined,
+		qtdBanco: toSafeInt(row?.quantidadeBancoDados, 0, 100000),
+		qtdCnpj: toSafeInt(row?.quantidadeCnpj, 0, 100000),
+		ipMblock: row?.ipMblock ?? null,
+		portaMblock:
+			row?.portaMblock !== undefined && row?.portaMblock !== null
+				? String(row.portaMblock)
+				: null,
+		observacao: row?.observacaoStatus ?? row?.observacao ?? null,
+	};
+}
+
 export default function ControleDeSistemaPage() {
 	/* estados */
 	const [query, setQuery] = useState("");
@@ -210,11 +206,13 @@ export default function ControleDeSistemaPage() {
 		| keyof Pick<
 				ControleSistema,
 				"sistema" | "qtdLicenca" | "qtdDiaLiberacao" | "status"
-		  >
+		>
 		| "cliente";
+
 	type SortDir = "asc" | "desc" | null;
-	const [sortKey, setSortKey] = useState<SortKey | null>(null);
-	const [sortDir, setSortDir] = useState<SortDir | null>(null);
+	const [sortKey, setSortKey] = useState<SortKey | null>("cliente");
+	const [sortDir, setSortDir] = useState<SortDir | null>("asc");
+
 
 	/* popup */
 	const [editingId, setEditingId] = useState<number | null>(null);
@@ -224,6 +222,9 @@ export default function ControleDeSistemaPage() {
 	/* helper nome do cliente */
 	const nomeCliente = (id: number) =>
 		clientes.find((c) => c.id === id)?.nome ?? "—";
+
+	const statusUI = (r: ControleSistema) =>
+		statusLabelFromId(Number(r.idStatus ?? statusIdFromLabel(r.status)));
 
 	/* trava scroll quando modal abre */
 	useEffect(() => {
@@ -295,7 +296,6 @@ export default function ControleDeSistemaPage() {
 					);
 
 				setSistemas(sistemasArr);
-
 				console.log(`✅ ${sistemasArr.length} sistemas carregados`);
 			} catch (e: any) {
 				console.error("❌ Erro /sistema:", e);
@@ -321,26 +321,31 @@ export default function ControleDeSistemaPage() {
 					const base = mapControleFromClienteSistema(row);
 					const cliStatus = clienteStatusMap.get(base.clienteId);
 
-					const finalStatus =
-						cliStatus?.status === "Irregular (Contrato Cancelado)"
-							? "Irregular (Contrato Cancelado)"
-							: base.status || "Regular";
+					const clienteCancelado =
+						String(cliStatus?.status ?? "").trim() ===
+						"Irregular (Contrato Cancelado)";
+
+					// ✅ NORMALIZA idStatus (fonte de verdade) e status (texto) SEMPRE coerente
+					const idStatusNormalized = clienteCancelado
+						? 3
+						: Number(base.idStatus) > 0
+							? Number(base.idStatus)
+							: Number(cliStatus?.idStatus) > 0
+								? Number(cliStatus?.idStatus)
+								: statusIdFromLabel(base.status);
+
+					const statusNormalized = statusLabelFromId(idStatusNormalized);
 
 					const sistemaNome =
 						(base.sistema && base.sistema.trim()) ||
 						sistemaMap.get(base.idSistema) ||
 						"";
 
-					const idStatusFinal =
-						cliStatus?.status === "Irregular (Contrato Cancelado)"
-							? 3
-							: base.idStatus ?? cliStatus?.idStatus ?? undefined;
-
 					return {
 						...base,
 						sistema: sistemaNome,
-						status: finalStatus,
-						idStatus: idStatusFinal,
+						idStatus: idStatusNormalized,
+						status: statusNormalized,
 					};
 				});
 
@@ -401,18 +406,26 @@ export default function ControleDeSistemaPage() {
 
 		if (sortKey && sortDir) {
 			data = [...data].sort((a, b) => {
-				let va = "";
-				let vb = "";
-
+				// cliente
 				if (sortKey === "cliente") {
-					va = nomeCliente(a.clienteId).toLowerCase();
-					vb = nomeCliente(b.clienteId).toLowerCase();
-				} else {
-					const k = sortKey as Exclude<SortKey, "cliente">;
-					va = String(a[k] ?? "").toLowerCase();
-					vb = String(b[k] ?? "").toLowerCase();
+					const va = nomeCliente(a.clienteId).toLowerCase();
+					const vb = nomeCliente(b.clienteId).toLowerCase();
+					if (va < vb) return sortDir === "asc" ? -1 : 1;
+					if (va > vb) return sortDir === "asc" ? 1 : -1;
+					return 0;
 				}
 
+				// numéricos
+				if (sortKey === "qtdLicenca" || sortKey === "qtdDiaLiberacao") {
+					const na = Number(a[sortKey] ?? 0);
+					const nb = Number(b[sortKey] ?? 0);
+					const cmp = na - nb;
+					return sortDir === "asc" ? cmp : -cmp;
+				}
+
+				// texto
+				const va = String(a[sortKey] ?? "").toLowerCase();
+				const vb = String(b[sortKey] ?? "").toLowerCase();
 				if (va < vb) return sortDir === "asc" ? -1 : 1;
 				if (va > vb) return sortDir === "asc" ? 1 : -1;
 				return 0;
@@ -435,11 +448,11 @@ export default function ControleDeSistemaPage() {
 
 	/* ações */
 	function handleAdd() {
-		// ✅ NÃO pode auto-selecionar o primeiro cliente/sistema
+		// ✅ NÃO seleciona automaticamente o primeiro cliente/sistema
 		setEditingId(0);
 		setForm({
-			clienteId: undefined, // vazio
-			sistema: "", // vazio
+			clienteId: undefined,
+			sistema: "",
 			qtdLicenca: 0,
 			qtdDiaLiberacao: 0,
 			qtdBanco: 0,
@@ -459,8 +472,6 @@ export default function ControleDeSistemaPage() {
 		const idStatusInicial =
 			Number(r.idStatus) > 0 ? Number(r.idStatus) : statusIdFromLabel(r.status);
 
-		const statusInicial = statusLabelFromId(idStatusInicial);
-
 		setEditingId(id);
 		setForm({
 			...r,
@@ -469,8 +480,8 @@ export default function ControleDeSistemaPage() {
 			ipMblock: r.ipMblock ?? "",
 			portaMblock: r.portaMblock ?? "",
 			observacao: r.observacao ?? "",
-			status: statusInicial,
 			idStatus: idStatusInicial,
+			status: statusLabelFromId(idStatusInicial),
 		});
 	}
 
@@ -485,12 +496,8 @@ export default function ControleDeSistemaPage() {
 			return;
 
 		try {
-			await backendFetch(`/clientesistema/${id}`, {
-				method: "DELETE",
-			});
-
+			await backendFetch(`/clientesistema/${id}`, { method: "DELETE" });
 			setRows((prev) => prev.filter((r) => r.id !== id));
-
 			console.log(`✅ Registro ${id} deletado com sucesso`);
 		} catch (e: any) {
 			console.error("❌ Erro ao deletar:", e);
@@ -512,8 +519,8 @@ export default function ControleDeSistemaPage() {
 	}
 
 	async function handleSave() {
-		// ✅ validações: cliente e sistema obrigatórios
-		if (!form.clienteId || !form.sistema?.trim()) {
+		// ✅ validação: não pode salvar sem selecionar
+		if (!form.clienteId || !String(form.sistema ?? "").trim()) {
 			alert("Cliente e Sistema são obrigatórios.");
 			return;
 		}
@@ -533,56 +540,41 @@ export default function ControleDeSistemaPage() {
 			const payload = {
 				idCliente: Number(form.clienteId),
 				idSistema: Number(idSistema),
+
 				quantidadeLicenca: Number(form.qtdLicenca ?? 0),
 				quantidadeDiaLiberacao: Number(form.qtdDiaLiberacao ?? 0),
 				quantidadeBancoDados: Number(form.qtdBanco ?? 0),
 				quantidadeCnpj: Number(form.qtdCnpj ?? 0),
+
 				ipMblock: form.ipMblock || null,
 				portaMblock: form.portaMblock || null,
 				observacaoStatus: form.observacao || null,
+
 				idStatus: idStatusFinal,
 				status: statusFinal,
 			};
 
-			console.log("📤 [handleSave] Enviando payload:", {
-				isNew: editingId === 0,
-				editingId,
-				payload,
-			});
+			console.log("📤 Enviando payload:", { editingId, payload });
 
 			if (editingId === 0) {
-				const response = await backendFetch("/clientesistema", {
+				await backendFetch("/clientesistema", {
 					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-					},
+					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
-
-				console.log("✅ [handleSave] Registro criado com sucesso:", response);
 			} else {
-				const response = await backendFetch(`/clientesistema/${editingId}`, {
+				await backendFetch(`/clientesistema/${editingId}`, {
 					method: "PUT",
-					headers: {
-						"Content-Type": "application/json",
-					},
+					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
-
-				console.log("✅ [handleSave] Registro atualizado com sucesso:", response);
 			}
 
 			await loadRows();
-
 			setEditingId(null);
 			setForm({});
 		} catch (e: any) {
-			console.error("❌ [handleSave] Erro ao salvar:", {
-				message: e?.message,
-				status: e?.status,
-				data: e?.data,
-				stack: e?.stack,
-			});
+			console.error("❌ Erro ao salvar:", e);
 
 			const errorMessage =
 				e?.data?.error ||
@@ -590,9 +582,7 @@ export default function ControleDeSistemaPage() {
 				e?.message ||
 				"Erro desconhecido ao salvar";
 
-			alert(
-				`Erro ao salvar o registro:\n\n${errorMessage}\n\nVerifique o console para mais detalhes.`
-			);
+			alert(`Erro ao salvar o registro:\n\n${errorMessage}`);
 		} finally {
 			setSaving(false);
 		}
@@ -646,7 +636,7 @@ export default function ControleDeSistemaPage() {
 							{r.qtdDiaLiberacao}
 						</div>
 						<div className="col-span-2">
-							<span className="text-gray-500">Status:</span> {r.status}
+							<span className="text-gray-500">Status:</span> {statusUI(r)}
 						</div>
 					</div>
 				</li>
@@ -837,7 +827,7 @@ export default function ControleDeSistemaPage() {
 												</td>
 
 												<td className="px-3 py-3 text-left whitespace-nowrap">
-													{r.status}
+													{statusUI(r)}
 												</td>
 											</tr>
 										))}
@@ -894,13 +884,20 @@ export default function ControleDeSistemaPage() {
 								</button>
 							</div>
 						</div>
+
+						{error && (
+							<div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">
+								{error}
+							</div>
+						)}
+
 					</main>
 				</div>
 			</div>
 
 			{/* POPUP */}
 			{editingId !== null && (
-				<div className="fixed inset-0 z-50">
+				<div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
 					<div className="absolute inset-0 bg-black/50" />
 
 					<div className="absolute inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-3">
@@ -914,11 +911,11 @@ export default function ControleDeSistemaPage() {
 									<label className="text-sm md:col-span-2">
 										<span className="block mb-1 text-black">Cliente *</span>
 										<select
-											value={form.clienteId ?? ""} // ✅ vazio quando undefined
+											value={form.clienteId ?? ""}
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
-													clienteId: Number(e.target.value),
+													clienteId: e.target.value ? Number(e.target.value) : undefined,
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
@@ -935,7 +932,7 @@ export default function ControleDeSistemaPage() {
 									<label className="text-sm md:col-span-2">
 										<span className="block mb-1 text-black">Sistema *</span>
 										<select
-											value={form.sistema ?? ""} // ✅ vazio quando undefined
+											value={form.sistema ?? ""}
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
@@ -970,9 +967,7 @@ export default function ControleDeSistemaPage() {
 									</label>
 
 									<label className="text-sm">
-										<span className="block mb-1 text-black">
-											Qtd Dia Liberação *
-										</span>
+										<span className="block mb-1 text-black">Qtd Dia Liberação *</span>
 										<input
 											type="number"
 											min={0}
@@ -988,9 +983,7 @@ export default function ControleDeSistemaPage() {
 									</label>
 
 									<label className="text-sm">
-										<span className="block mb-1 text-black">
-											Qtd Bancos de Dados
-										</span>
+										<span className="block mb-1 text-black">Qtd Bancos de Dados</span>
 										<input
 											type="number"
 											min={0}
