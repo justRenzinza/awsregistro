@@ -140,8 +140,11 @@ export default function ClientesPage() {
 	const [query, setQuery] = useState("");
 	const [page, setPage] = useState(1);
 	const [pageSize] = useState(10);
-	const [sortKey, setSortKey] = useState<SortKey | null>(null);
-	const [sortDir, setSortDir] = useState<SortDir>(null);
+
+	// ✅ padrão agora: ordem decrescente por dataRegistro (mais recentes primeiro)
+	const [sortKey, setSortKey] = useState<SortKey | null>("dataRegistro");
+	const [sortDir, setSortDir] = useState<SortDir>("desc");
+
 	const [rows, setRows] = useState<Cliente[]>([]);
 	const [loading, setLoading] = useState(true);
 
@@ -219,6 +222,9 @@ export default function ClientesPage() {
 
 			setRows(unique);
 			console.log(`✅ ${unique.length} clientes carregados`);
+
+			// ✅ quando recarrega (abrir página / depois de alterações), volta pra página 1
+			setPage(1);
 		} catch (e) {
 			console.error("❌ Falha ao buscar clientes:", e);
 			alert("Não foi possível carregar os clientes. Verifique sua conexão.");
@@ -249,23 +255,39 @@ export default function ClientesPage() {
 				.includes(q)
 		);
 
+		// ✅ ordenação padrão: dataRegistro desc, com desempate em código desc
 		if (sortKey && sortDir) {
 			data = [...data].sort((a, b) => {
 				let cmp = 0;
+
 				if (sortKey === "codigo") {
 					cmp = (a.codigo ?? 0) - (b.codigo ?? 0);
 				} else if (sortKey === "dataRegistro") {
 					cmp =
 						parseBRDate(a.dataRegistro ?? "") -
 						parseBRDate(b.dataRegistro ?? "");
+
+					// desempate: código
+					if (cmp === 0) cmp = (a.codigo ?? 0) - (b.codigo ?? 0);
 				} else {
 					const va = String(a[sortKey] ?? "").toLowerCase();
 					const vb = String(b[sortKey] ?? "").toLowerCase();
 					cmp = va < vb ? -1 : va > vb ? 1 : 0;
 				}
+
 				return sortDir === "asc" ? cmp : -cmp;
 			});
+		} else {
+			// fallback: se por alguma razão não tiver sortKey/dir, ainda força data desc
+			data = [...data].sort((a, b) => {
+				const cmp =
+					parseBRDate(a.dataRegistro ?? "") -
+					parseBRDate(b.dataRegistro ?? "");
+				if (cmp !== 0) return -cmp;
+				return (b.codigo ?? 0) - (a.codigo ?? 0);
+			});
 		}
+
 		return data;
 	}, [rows, query, sortKey, sortDir]);
 
@@ -387,7 +409,8 @@ export default function ClientesPage() {
 			razaoSocial: razaoSocial,
 			contato: editForm.contato ?? "",
 			cnpj: cnpjDigits,
-			dataRegistro: editForm.dataRegistro ?? new Date().toLocaleDateString("pt-BR"),
+			dataRegistro:
+				editForm.dataRegistro ?? new Date().toLocaleDateString("pt-BR"),
 			telefone: editForm.telefone ?? "",
 			email: email,
 			idSistema: SISTEMA_ID,
@@ -451,7 +474,10 @@ export default function ClientesPage() {
 	const MobileList = () => (
 		<ul className="sm:hidden space-y-3">
 			{pageData.map((r, idx) => (
-				<li key={`${page}-${idx}`} className="rounded-xl border bg-white p-4 shadow">
+				<li
+					key={`${page}-${idx}`}
+					className="rounded-xl border bg-white p-4 shadow"
+				>
 					<div className="flex items-start gap-3">
 						<div className="min-w-0 flex-1">
 							<div className="text-sm text-gray-500">Código {r.codigo}</div>
@@ -497,7 +523,10 @@ export default function ClientesPage() {
 						<div className="break-all">
 							<span className="text-gray-500">Email:</span>{" "}
 							{isValidEmail(r.email) ? (
-								<a href={`mailto:${r.email}`} className="underline underline-offset-2">
+								<a
+									href={`mailto:${r.email}`}
+									className="underline underline-offset-2"
+								>
 									{r.email}
 								</a>
 							) : (
@@ -525,10 +554,8 @@ export default function ClientesPage() {
 						<div className="font-semibold text-white">Clientes</div>
 					</div>
 
-					{/* ✅ AQUI: aumentei o max-width no desktop pra tabela caber melhor */}
 					<main className="mx-auto w-full max-w-[95rem] p-4 md:p-6">
 						<div className="mb-4 space-y-2">
-							{/* mobile */}
 							<div className="flex flex-wrap items-center gap-2 sm:hidden w-full">
 								<input
 									type="text"
@@ -558,7 +585,6 @@ export default function ClientesPage() {
 								</button>
 							</div>
 
-							{/* desktop */}
 							<div className="hidden sm:flex sm:items-center sm:justify-between">
 								<div className="flex w-full items-center gap-2">
 									<input
@@ -594,7 +620,6 @@ export default function ClientesPage() {
 						<MobileList />
 
 						<div className="hidden sm:block rounded-xl bg-white shadow overflow-hidden">
-							{/* ✅ aqui: removi overflow-x-auto e usei table-fixed + widths melhores */}
 							<div className="w-full">
 								<table className="w-full table-fixed border-separate border-spacing-0 text-sm">
 									<thead>
@@ -629,7 +654,11 @@ export default function ClientesPage() {
 												onClick={() => toggleSort("cnpj")}
 											>
 												CNPJ{" "}
-												{sortKey === "cnpj" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												{sortKey === "cnpj"
+													? sortDir === "asc"
+														? "▲"
+														: "▼"
+													: ""}
 											</th>
 											<th
 												className="px-3 py-3 w-32 text-left whitespace-nowrap cursor-pointer"
@@ -669,7 +698,11 @@ export default function ClientesPage() {
 												onClick={() => toggleSort("email")}
 											>
 												Email{" "}
-												{sortKey === "email" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+												{sortKey === "email"
+													? sortDir === "asc"
+														? "▲"
+														: "▼"
+													: ""}
 											</th>
 										</tr>
 									</thead>
@@ -801,7 +834,12 @@ export default function ClientesPage() {
 			</div>
 
 			{editingId !== null && (
-				<div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={editingId === 0 ? "Adicionar Cliente" : "Editar Cliente"}>
+				<div
+					className="fixed inset-0 z-50"
+					role="dialog"
+					aria-modal="true"
+					aria-label={editingId === 0 ? "Adicionar Cliente" : "Editar Cliente"}
+				>
 					<div className="absolute inset-0 bg-black/50" />
 					<div className="absolute inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-3">
 						<div className="h-full w-full sm:h-auto sm:w-full sm:max-w-2xl rounded-none sm:rounded-xl bg-white shadow-lg overflow-y-auto">
@@ -837,7 +875,9 @@ export default function ClientesPage() {
 												setEditForm((prev) => ({ ...prev, razaoSocial: v }));
 												setErrors((prev) => ({
 													...prev,
-													razaoSocial: v.trim() ? undefined : "Razão social é obrigatória.",
+													razaoSocial: v.trim()
+														? undefined
+														: "Razão social é obrigatória.",
 												}));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
@@ -845,7 +885,9 @@ export default function ClientesPage() {
 											} text-black`}
 										/>
 										{errors.razaoSocial && (
-											<p className="mt-1 text-xs text-red-600">{errors.razaoSocial}</p>
+											<p className="mt-1 text-xs text-red-600">
+												{errors.razaoSocial}
+											</p>
 										)}
 									</label>
 
@@ -855,10 +897,17 @@ export default function ClientesPage() {
 											type="text"
 											value={editForm.cnpj ?? ""}
 											onChange={(e) => {
-												const digits = e.target.value.replace(/\D/g, "").slice(0, 14);
+												const digits = e.target.value
+													.replace(/\D/g, "")
+													.slice(0, 14);
 												setEditForm((prev) => ({ ...prev, cnpj: digits }));
-												if (!digits) setErrors((prev) => ({ ...prev, cnpj: "CNPJ é obrigatório." }));
-												else if (!isValidCNPJ(digits)) setErrors((prev) => ({ ...prev, cnpj: "CNPJ inválido." }));
+												if (!digits)
+													setErrors((prev) => ({
+														...prev,
+														cnpj: "CNPJ é obrigatório.",
+													}));
+												else if (!isValidCNPJ(digits))
+													setErrors((prev) => ({ ...prev, cnpj: "CNPJ inválido." }));
 												else setErrors((prev) => ({ ...prev, cnpj: undefined }));
 											}}
 											onBlur={() => {
@@ -881,7 +930,12 @@ export default function ClientesPage() {
 										<input
 											type="text"
 											value={editForm.dataRegistro ?? ""}
-											onChange={(e) => setEditForm((prev) => ({ ...prev, dataRegistro: e.target.value }))}
+											onChange={(e) =>
+												setEditForm((prev) => ({
+													...prev,
+													dataRegistro: e.target.value,
+												}))
+											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 											placeholder="dd/mm/aaaa"
 										/>
@@ -892,7 +946,12 @@ export default function ClientesPage() {
 										<input
 											type="text"
 											value={editForm.contato ?? ""}
-											onChange={(e) => setEditForm((prev) => ({ ...prev, contato: e.target.value }))}
+											onChange={(e) =>
+												setEditForm((prev) => ({
+													...prev,
+													contato: e.target.value,
+												}))
+											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 									</label>
@@ -902,7 +961,12 @@ export default function ClientesPage() {
 										<input
 											type="text"
 											value={editForm.telefone ?? ""}
-											onChange={(e) => setEditForm((prev) => ({ ...prev, telefone: e.target.value }))}
+											onChange={(e) =>
+												setEditForm((prev) => ({
+													...prev,
+													telefone: e.target.value,
+												}))
+											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 									</label>
@@ -915,8 +979,13 @@ export default function ClientesPage() {
 											onChange={(e) => {
 												const v = e.target.value;
 												setEditForm((prev) => ({ ...prev, email: v }));
-												if (!v) setErrors((prev) => ({ ...prev, email: "Email é obrigatório." }));
-												else if (!isValidEmail(v)) setErrors((prev) => ({ ...prev, email: "Email inválido." }));
+												if (!v)
+													setErrors((prev) => ({
+														...prev,
+														email: "Email é obrigatório.",
+													}));
+												else if (!isValidEmail(v))
+													setErrors((prev) => ({ ...prev, email: "Email inválido." }));
 												else setErrors((prev) => ({ ...prev, email: undefined }));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
