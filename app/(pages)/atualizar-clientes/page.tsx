@@ -141,8 +141,10 @@ export default function AtualizarClientesPorVersaoPage() {
 	const [rows, setRows] = useState<ClienteVersaoRow[]>([]);
 	const [page, setPage] = useState(1);
 	const [pageSize] = useState(10);
-	const [sortKey, setSortKey] = useState<SortKey | null>(null);
-	const [sortDir, setSortDir] = useState<SortDir>(null);
+	// ✅ padrão: ordenar por Cliente (A→Z)
+	const [sortKey, setSortKey] = useState<SortKey | null>("cliente");
+	const [sortDir, setSortDir] = useState<SortDir>("asc");
+
 
 	const [sistemas, setSistemas] = useState<SistemaOption[]>([]);
 	const [sistemaSelecionado, setSistemaSelecionado] = useState<

@@ -71,8 +71,10 @@ export default function ClientesVersaoPage() {
 	const [page, setPage] = useState(1);
 	const [pageSize] = useState(10);
 
-	const [sortKey, setSortKey] = useState<SortKey | null>(null);
-	const [sortDir, setSortDir] = useState<SortDir>(null);
+	// ✅ padrão: ordenar por Cliente (A→Z)
+	const [sortKey, setSortKey] = useState<SortKey | null>("nome_cliente");
+	const [sortDir, setSortDir] = useState<SortDir>("asc");
+
 	const [isLoading, setIsLoading] = useState(false);
 
 	/* carregar dados do backend AWS */
