@@ -107,25 +107,52 @@ function mapSistemaFromApi(row: any): Sistema {
 }
 
 function mapControleFromClienteSistema(row: any): ControleSistema {
-	const toSafeNumber = (value: any, defaultValue: number = 0): number => {
-		const num = Number(value);
-		if (!isFinite(num) || isNaN(num) || Math.abs(num) > 1_000_000_000) {
-			return defaultValue;
+	const toSmallInt = (
+		value: any,
+		defaultValue: number = 0,
+		limit: number = 100000
+	): number => {
+		if (value === null || value === undefined) return defaultValue;
+
+		if (typeof value === "number") {
+			if (!Number.isFinite(value)) return defaultValue;
+			const n = Math.trunc(value);
+			return Math.abs(n) > limit ? defaultValue : n;
 		}
-		return num;
+
+		const s = String(value).trim();
+		if (!s) return defaultValue;
+
+		const direct = Number(s.replace(",", "."));
+		if (Number.isFinite(direct)) {
+			const n = Math.trunc(direct);
+			return Math.abs(n) > limit ? defaultValue : n;
+		}
+
+		const digits = s.replace(/[^\d-]/g, "");
+		if (!digits) return defaultValue;
+
+		const n2 = Number(digits);
+		if (!Number.isFinite(n2)) return defaultValue;
+
+		const n = Math.trunc(n2);
+		return Math.abs(n) > limit ? defaultValue : n;
 	};
 
+	const lic = toSmallInt(row?.quantidadeLicenca, 0, 10000);
+	const dias = toSmallInt(row?.quantidadeDiaLiberacao, 0, 3650);
+
 	return {
-		id: toSafeNumber(row?.id),
-		clienteId: toSafeNumber(row?.idCliente),
-		idSistema: toSafeNumber(row?.idSistema),
+		id: toSmallInt(row?.id, 0, 1_000_000_000),
+		clienteId: toSmallInt(row?.idCliente, 0, 1_000_000_000),
+		idSistema: toSmallInt(row?.idSistema, 0, 1_000_000_000),
 		sistema: String(row?.nome ?? ""),
-		qtdLicenca: toSafeNumber(row?.quantidadeLicenca, 0),
-		qtdDiaLiberacao: toSafeNumber(row?.quantidadeDiaLiberacao, 0),
+		qtdLicenca: lic,
+		qtdDiaLiberacao: dias,
 		status: row?.status || "Regular",
-		idStatus: toSafeNumber(row?.idStatus) || undefined,
-		qtdBanco: toSafeNumber(row?.quantidadeBancoDados, 0),
-		qtdCnpj: toSafeNumber(row?.quantidadeCnpj, 0),
+		idStatus: toSmallInt(row?.idStatus, 0, 10) || undefined,
+		qtdBanco: toSmallInt(row?.quantidadeBancoDados, 0, 10000),
+		qtdCnpj: toSmallInt(row?.quantidadeCnpj, 0, 10000),
 		ipMblock: row?.ipMblock ?? null,
 		portaMblock:
 			row?.portaMblock !== undefined && row?.portaMblock !== null
@@ -139,7 +166,7 @@ function isUnauthorized(e: any) {
 	return e?.status === 401;
 }
 
-/* ===== helpers STATUS (CORREÇÃO) ===== */
+/* ===== helpers STATUS ===== */
 
 function statusLabelFromId(id: number): StatusContrato {
 	switch (id) {
@@ -294,7 +321,6 @@ export default function ControleDeSistemaPage() {
 					const base = mapControleFromClienteSistema(row);
 					const cliStatus = clienteStatusMap.get(base.clienteId);
 
-					// Se o cliente foi cancelado no cadastro de clientes, força cancelado aqui também.
 					const finalStatus =
 						cliStatus?.status === "Irregular (Contrato Cancelado)"
 							? "Irregular (Contrato Cancelado)"
@@ -305,8 +331,6 @@ export default function ControleDeSistemaPage() {
 						sistemaMap.get(base.idSistema) ||
 						"";
 
-					// ✅ idStatus: prioriza o do registro /clientesistema (base.idStatus),
-					// mas ainda respeita cliente cancelado (3) se vier assim no cliente.
 					const idStatusFinal =
 						cliStatus?.status === "Irregular (Contrato Cancelado)"
 							? 3
@@ -411,13 +435,11 @@ export default function ControleDeSistemaPage() {
 
 	/* ações */
 	function handleAdd() {
-		const clienteId = clientes[0]?.id;
-		const sistemaNome = sistemas[0]?.nome ?? "";
-
+		// ✅ NÃO pode auto-selecionar o primeiro cliente/sistema
 		setEditingId(0);
 		setForm({
-			clienteId,
-			sistema: sistemaNome,
+			clienteId: undefined, // vazio
+			sistema: "", // vazio
 			qtdLicenca: 0,
 			qtdDiaLiberacao: 0,
 			qtdBanco: 0,
@@ -425,7 +447,6 @@ export default function ControleDeSistemaPage() {
 			ipMblock: "",
 			portaMblock: "",
 			observacao: "",
-			// ✅ CORREÇÃO: status + idStatus
 			status: "Regular",
 			idStatus: 1,
 		});
@@ -435,7 +456,6 @@ export default function ControleDeSistemaPage() {
 		const r = rows.find((x) => x.id === id);
 		if (!r) return;
 
-		// ✅ CORREÇÃO: garante idStatus coerente ao abrir o modal
 		const idStatusInicial =
 			Number(r.idStatus) > 0 ? Number(r.idStatus) : statusIdFromLabel(r.status);
 
@@ -483,7 +503,6 @@ export default function ControleDeSistemaPage() {
 		setForm({});
 	}
 
-	// ✅ helper para mudar status no rádio e atualizar idStatus + status
 	function setStatus(id: number) {
 		setForm((prev) => ({
 			...prev,
@@ -493,6 +512,7 @@ export default function ControleDeSistemaPage() {
 	}
 
 	async function handleSave() {
+		// ✅ validações: cliente e sistema obrigatórios
 		if (!form.clienteId || !form.sistema?.trim()) {
 			alert("Cliente e Sistema são obrigatórios.");
 			return;
@@ -503,7 +523,6 @@ export default function ControleDeSistemaPage() {
 		try {
 			const idSistema = sistemas.find((s) => s.nome === form.sistema)?.id ?? 0;
 
-			// ✅ CORREÇÃO: garante idStatus coerente no payload
 			const idStatusFinal =
 				Number(form.idStatus) > 0
 					? Number(form.idStatus)
@@ -511,7 +530,6 @@ export default function ControleDeSistemaPage() {
 
 			const statusFinal = statusLabelFromId(idStatusFinal);
 
-			// ✅ PAYLOAD com validação robusta
 			const payload = {
 				idCliente: Number(form.clienteId),
 				idSistema: Number(idSistema),
@@ -522,8 +540,6 @@ export default function ControleDeSistemaPage() {
 				ipMblock: form.ipMblock || null,
 				portaMblock: form.portaMblock || null,
 				observacaoStatus: form.observacao || null,
-
-				// ✅ AQUI está a correção que faz persistir:
 				idStatus: idStatusFinal,
 				status: statusFinal,
 			};
@@ -535,9 +551,6 @@ export default function ControleDeSistemaPage() {
 			});
 
 			if (editingId === 0) {
-				// ✅ CRIAR NOVO
-				console.log("🆕 [handleSave] Criando novo registro...");
-
 				const response = await backendFetch("/clientesistema", {
 					method: "POST",
 					headers: {
@@ -548,9 +561,6 @@ export default function ControleDeSistemaPage() {
 
 				console.log("✅ [handleSave] Registro criado com sucesso:", response);
 			} else {
-				// ✅ ATUALIZAR EXISTENTE
-				console.log(`🔄 [handleSave] Atualizando registro ${editingId}...`);
-
 				const response = await backendFetch(`/clientesistema/${editingId}`, {
 					method: "PUT",
 					headers: {
@@ -562,7 +572,6 @@ export default function ControleDeSistemaPage() {
 				console.log("✅ [handleSave] Registro atualizado com sucesso:", response);
 			}
 
-			// Recarrega a lista
 			await loadRows();
 
 			setEditingId(null);
@@ -575,7 +584,6 @@ export default function ControleDeSistemaPage() {
 				stack: e?.stack,
 			});
 
-			// ✅ Mensagem de erro mais detalhada
 			const errorMessage =
 				e?.data?.error ||
 				e?.data?.message ||
@@ -906,7 +914,7 @@ export default function ControleDeSistemaPage() {
 									<label className="text-sm md:col-span-2">
 										<span className="block mb-1 text-black">Cliente *</span>
 										<select
-											value={form.clienteId ?? ""}
+											value={form.clienteId ?? ""} // ✅ vazio quando undefined
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
@@ -927,7 +935,7 @@ export default function ControleDeSistemaPage() {
 									<label className="text-sm md:col-span-2">
 										<span className="block mb-1 text-black">Sistema *</span>
 										<select
-											value={form.sistema ?? ""}
+											value={form.sistema ?? ""} // ✅ vazio quando undefined
 											onChange={(e) =>
 												setForm((prev) => ({
 													...prev,
