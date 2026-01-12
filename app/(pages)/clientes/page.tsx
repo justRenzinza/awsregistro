@@ -78,19 +78,75 @@ function isValidCNPJ(cnpjRaw: string) {
 
 /* ========= datas ========= */
 function parseBRDate(d: string) {
-	const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(d || "");
+	const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((d || "").trim());
 	if (!m) return 0;
-	const [_, dd, mm, yyyy] = m;
-	return new Date(Number(yyyy), Number(mm) - 1, Number(dd)).getTime();
+	const [_, ddS, mmS, yyyyS] = m;
+	const dd = Number(ddS);
+	const mm = Number(mmS);
+	const yyyy = Number(yyyyS);
+
+	const dt = new Date(yyyy, mm - 1, dd);
+	if (
+		dt.getFullYear() !== yyyy ||
+		dt.getMonth() !== mm - 1 ||
+		dt.getDate() !== dd
+	) {
+		return 0;
+	}
+	return dt.getTime();
 }
 
-/** Converte "2024-10-21" ou "2024-10-21T00:00:00" em "21/10/2024" */
-function formatBackendDate(d: string) {
+function isValidBRDate(d: string) {
+	return parseBRDate(d) > 0;
+}
+
+/**
+ * Converte:
+ * - "YYYY-MM-DD" ou "YYYY-MM-DDTHH..." => "dd/mm/yyyy"
+ * - "dd/mm/yyyy" => mantém
+ * - "dd-mm-yyyy" => "dd/mm/yyyy"
+ *
+ * NÃO converte "mm/dd/yyyy" (ex: 01/14/2025) — isso deve ser tratado como inválido.
+ */
+function formatBackendDate(raw: any) {
+	const d = String(raw ?? "").trim();
 	if (!d) return "";
-	const iso = d.split("T")[0];
-	const [yyyy, mm, dd] = iso.split("-");
-	if (!yyyy || !mm || !dd) return d;
-	return `${dd.padStart(2, "0")}/${mm.padStart(2, "0")}/${yyyy}`;
+
+	// já é BR (dd/mm/yyyy)
+	if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) return d;
+
+	// dd-mm-yyyy => dd/mm/yyyy
+	if (/^\d{2}-\d{2}-\d{4}$/.test(d)) return d.replace(/-/g, "/");
+
+	// ISO: yyyy-mm-dd or yyyy-mm-ddTHH...
+	const iso = d.includes("T") ? d.split("T")[0] : d;
+	if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+		const [yyyy, mm, dd] = iso.split("-");
+		return `${dd}/${mm}/${yyyy}`;
+	}
+
+	return d;
+}
+
+/** ✅ converte dd/mm/aaaa => yyyy-mm-dd (ISO) para enviar ao backend */
+function brToISO(d: string) {
+	const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((d || "").trim());
+	if (!m) return "";
+	const [, dd, mm, yyyy] = m;
+	return `${yyyy}-${mm}-${dd}`;
+}
+
+/** máscara simples dd/mm/aaaa (só para digitação) */
+function maskBRDateInput(value: string) {
+	const digits = (value || "").replace(/\D/g, "").slice(0, 8); // ddmmyyyy
+	const dd = digits.slice(0, 2);
+	const mm = digits.slice(2, 4);
+	const yyyy = digits.slice(4, 8);
+
+	let out = dd;
+	if (mm) out += `/${mm}`;
+	if (yyyy) out += `/${yyyy}`;
+	return out;
 }
 
 /* ========= mapeamento da API externa ========= */
@@ -141,9 +197,9 @@ export default function ClientesPage() {
 	const [page, setPage] = useState(1);
 	const [pageSize] = useState(10);
 
-	// ✅ padrão agora: ordem decrescente por dataRegistro (mais recentes primeiro)
-	const [sortKey, setSortKey] = useState<SortKey | null>("dataRegistro");
-	const [sortDir, setSortDir] = useState<SortDir>("desc");
+	// ✅ padrão agora: ordenar por Razão Social (A→Z)
+	const [sortKey, setSortKey] = useState<SortKey | null>("razaoSocial");
+	const [sortDir, setSortDir] = useState<SortDir>("asc");
 
 	const [rows, setRows] = useState<Cliente[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -154,6 +210,7 @@ export default function ClientesPage() {
 		cnpj?: string;
 		email?: string;
 		razaoSocial?: string;
+		dataRegistro?: string;
 	}>({});
 	const [originalCnpj, setOriginalCnpj] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
@@ -223,7 +280,6 @@ export default function ClientesPage() {
 			setRows(unique);
 			console.log(`✅ ${unique.length} clientes carregados`);
 
-			// ✅ quando recarrega (abrir página / depois de alterações), volta pra página 1
 			setPage(1);
 		} catch (e) {
 			console.error("❌ Falha ao buscar clientes:", e);
@@ -255,36 +311,21 @@ export default function ClientesPage() {
 				.includes(q)
 		);
 
-		// ✅ ordenação padrão: dataRegistro desc, com desempate em código desc
 		if (sortKey && sortDir) {
 			data = [...data].sort((a, b) => {
 				let cmp = 0;
-
 				if (sortKey === "codigo") {
 					cmp = (a.codigo ?? 0) - (b.codigo ?? 0);
 				} else if (sortKey === "dataRegistro") {
 					cmp =
-						parseBRDate(a.dataRegistro ?? "") -
-						parseBRDate(b.dataRegistro ?? "");
-
-					// desempate: código
-					if (cmp === 0) cmp = (a.codigo ?? 0) - (b.codigo ?? 0);
+						parseBRDate(String(a.dataRegistro ?? "")) -
+						parseBRDate(String(b.dataRegistro ?? ""));
 				} else {
 					const va = String(a[sortKey] ?? "").toLowerCase();
 					const vb = String(b[sortKey] ?? "").toLowerCase();
 					cmp = va < vb ? -1 : va > vb ? 1 : 0;
 				}
-
 				return sortDir === "asc" ? cmp : -cmp;
-			});
-		} else {
-			// fallback: se por alguma razão não tiver sortKey/dir, ainda força data desc
-			data = [...data].sort((a, b) => {
-				const cmp =
-					parseBRDate(a.dataRegistro ?? "") -
-					parseBRDate(b.dataRegistro ?? "");
-				if (cmp !== 0) return -cmp;
-				return (b.codigo ?? 0) - (a.codigo ?? 0);
 			});
 		}
 
@@ -333,10 +374,14 @@ export default function ClientesPage() {
 		const hojeISO = new Date().toISOString().slice(0, 10);
 		const hojeBR = new Date().toLocaleDateString("pt-BR");
 
+		// ✅ manda dataRegistro em ISO pro backend (evita inverter)
+		const dataBRDel = formatBackendDate(cliente.dataRegistro) || hojeBR;
+		const dataISODel = brToISO(dataBRDel) || hojeISO;
+
 		const payload = {
 			nome: cliente.razaoSocial,
 			cnpj: cnpjDigits,
-			dataRegistro: cliente.dataRegistro || hojeBR,
+			dataRegistro: dataISODel,
 			nomeContato: cliente.contato ?? "",
 			telefone: cliente.telefone ?? "",
 			email: cliente.email ?? "",
@@ -370,9 +415,14 @@ export default function ClientesPage() {
 	function handleEditOpen(id: number) {
 		const c = rows.find((r) => r.id === id);
 		if (!c) return;
+
 		setEditingId(id);
 		setOriginalCnpj(c.cnpj?.replace(/\D/g, "") || null);
-		setEditForm({ ...c, cnpj: c.cnpj?.replace(/\D/g, "") });
+		setEditForm({
+			...c,
+			cnpj: c.cnpj?.replace(/\D/g, ""),
+			dataRegistro: formatBackendDate(c.dataRegistro),
+		});
 		setErrors({});
 	}
 
@@ -386,11 +436,19 @@ export default function ClientesPage() {
 	async function handleEditSave() {
 		if (editingId === null) return;
 
-		const errs: { cnpj?: string; email?: string; razaoSocial?: string } = {};
+		const errs: {
+			cnpj?: string;
+			email?: string;
+			razaoSocial?: string;
+			dataRegistro?: string;
+		} = {};
 
 		const email = (editForm.email ?? "").trim();
 		const cnpjDigits = (editForm.cnpj ?? "").toString().replace(/\D/g, "");
 		const razaoSocial = (editForm.razaoSocial ?? "").trim();
+
+		// ✅ normaliza e valida dd/mm/aaaa (pra UI)
+		const dataRegistro = formatBackendDate(editForm.dataRegistro ?? "").trim();
 
 		if (!razaoSocial) errs.razaoSocial = "Razão social é obrigatória.";
 		if (!email) errs.email = "Email é obrigatório.";
@@ -398,10 +456,18 @@ export default function ClientesPage() {
 		if (!cnpjDigits) errs.cnpj = "CNPJ é obrigatório.";
 		else if (!isValidCNPJ(cnpjDigits)) errs.cnpj = "CNPJ inválido.";
 
-		if (errs.email || errs.cnpj || errs.razaoSocial) {
+		if (dataRegistro && !isValidBRDate(dataRegistro)) {
+			errs.dataRegistro = "Data inválida. Use dd/mm/aaaa.";
+		}
+
+		if (errs.email || errs.cnpj || errs.razaoSocial || errs.dataRegistro) {
 			setErrors(errs);
 			return;
 		}
+
+		// ✅ manda em ISO pro backend (evita inverter dd/mm)
+		const dataBR = dataRegistro || new Date().toLocaleDateString("pt-BR");
+		const dataISO = brToISO(dataBR) || new Date().toISOString().slice(0, 10);
 
 		const payloadBase = {
 			nome: razaoSocial,
@@ -409,8 +475,7 @@ export default function ClientesPage() {
 			razaoSocial: razaoSocial,
 			contato: editForm.contato ?? "",
 			cnpj: cnpjDigits,
-			dataRegistro:
-				editForm.dataRegistro ?? new Date().toLocaleDateString("pt-BR"),
+			dataRegistro: dataISO,
 			telefone: editForm.telefone ?? "",
 			email: email,
 			idSistema: SISTEMA_ID,
@@ -474,10 +539,7 @@ export default function ClientesPage() {
 	const MobileList = () => (
 		<ul className="sm:hidden space-y-3">
 			{pageData.map((r, idx) => (
-				<li
-					key={`${page}-${idx}`}
-					className="rounded-xl border bg-white p-4 shadow"
-				>
+				<li key={`${page}-${idx}`} className="rounded-xl border bg-white p-4 shadow">
 					<div className="flex items-start gap-3">
 						<div className="min-w-0 flex-1">
 							<div className="text-sm text-gray-500">Código {r.codigo}</div>
@@ -511,7 +573,8 @@ export default function ClientesPage() {
 							<span className="text-gray-500">CNPJ:</span> {formatCNPJ(r.cnpj)}
 						</div>
 						<div>
-							<span className="text-gray-500">Data:</span> {r.dataRegistro}
+							<span className="text-gray-500">Data:</span>{" "}
+							{formatBackendDate(r.dataRegistro)}
 						</div>
 						<div>
 							<span className="text-gray-500">Contato:</span> {r.contato}
@@ -523,10 +586,7 @@ export default function ClientesPage() {
 						<div className="break-all">
 							<span className="text-gray-500">Email:</span>{" "}
 							{isValidEmail(r.email) ? (
-								<a
-									href={`mailto:${r.email}`}
-									className="underline underline-offset-2"
-								>
+								<a href={`mailto:${r.email}`} className="underline underline-offset-2">
 									{r.email}
 								</a>
 							) : (
@@ -664,7 +724,7 @@ export default function ClientesPage() {
 												className="px-3 py-3 w-32 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("dataRegistro")}
 											>
-												Data Registro{" "}
+												Data Cadastro{" "}
 												{sortKey === "dataRegistro"
 													? sortDir === "asc"
 														? "▲"
@@ -749,7 +809,7 @@ export default function ClientesPage() {
 												</td>
 
 												<td className="px-3 py-3 whitespace-nowrap text-left">
-													{r.dataRegistro}
+													{formatBackendDate(r.dataRegistro)}
 												</td>
 
 												<td className="px-3 py-3 whitespace-nowrap text-left">
@@ -926,19 +986,46 @@ export default function ClientesPage() {
 									</label>
 
 									<label className="text-sm">
-										<span className="mb-1 block text-black">Data Registro</span>
+										<span className="mb-1 block text-black">Data de Cadastro</span>
 										<input
 											type="text"
 											value={editForm.dataRegistro ?? ""}
-											onChange={(e) =>
-												setEditForm((prev) => ({
-													...prev,
-													dataRegistro: e.target.value,
-												}))
-											}
-											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											onChange={(e) => {
+												const masked = maskBRDateInput(e.target.value);
+												setEditForm((prev) => ({ ...prev, dataRegistro: masked }));
+
+												// valida só quando tiver completo
+												if (masked.length === 10) {
+													setErrors((prev) => ({
+														...prev,
+														dataRegistro: isValidBRDate(masked)
+															? undefined
+															: "Data inválida. Use dd/mm/aaaa.",
+													}));
+												} else {
+													setErrors((prev) => ({ ...prev, dataRegistro: undefined }));
+												}
+											}}
+											onBlur={() => {
+												const v = String(editForm.dataRegistro ?? "").trim();
+												if (v && v.length === 10) {
+													setErrors((prev) => ({
+														...prev,
+														dataRegistro: isValidBRDate(v)
+															? undefined
+															: "Data inválida. Use dd/mm/aaaa.",
+													}));
+												}
+											}}
+											className={`w-full rounded border px-3 py-2 text-sm ${
+												errors.dataRegistro ? "border-red-500" : "border-gray-300"
+											} text-black`}
 											placeholder="dd/mm/aaaa"
+											inputMode="numeric"
 										/>
+										{errors.dataRegistro && (
+											<p className="mt-1 text-xs text-red-600">{errors.dataRegistro}</p>
+										)}
 									</label>
 
 									<label className="text-sm">
