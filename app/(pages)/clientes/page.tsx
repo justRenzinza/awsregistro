@@ -13,7 +13,7 @@ export type Cliente = {
 	id: number;
 	codigo: number;
 	razaoSocial: string;
-	cnpj: string;
+	cnpj: string; // aqui pode vir CNPJ (14) OU CPF (11)
 	dataRegistro: string; // dd/mm/yyyy
 	contato: string;
 	telefone: string;
@@ -23,6 +23,11 @@ export type Cliente = {
 	status?: string | null;
 };
 
+/* ========= helpers gerais ========= */
+function onlyDigits(v: string) {
+	return (v || "").replace(/\D/g, "");
+}
+
 /* ========= helpers visuais ========= */
 function formatCNPJ(v: string) {
 	const s = (v || "").replace(/\D/g, "").slice(0, 14);
@@ -31,6 +36,23 @@ function formatCNPJ(v: string) {
 		.replace(/^(\d{2}\.\d{3})(\d)/, "$1.$2")
 		.replace(/^(\d{2}\.\d{3}\.\d{3})(\d)/, "$1/$2")
 		.replace(/^(\d{2}\.\d{3}\.\d{3}\/\d{4})(\d{1,2}).*$/, "$1-$2");
+}
+
+function formatCPF(v: string) {
+	const s = (v || "").replace(/\D/g, "").slice(0, 11);
+	return s
+		.replace(/^(\d{3})(\d)/, "$1.$2")
+		.replace(/^(\d{3}\.\d{3})(\d)/, "$1.$2")
+		.replace(/^(\d{3}\.\d{3}\.\d{3})(\d{1,2}).*$/, "$1-$2");
+}
+
+/** ✅ mostra CPF/CNPJ automaticamente */
+function formatDoc(v: string) {
+	const d = onlyDigits(v);
+	if (d.length === 11) return formatCPF(d);
+	if (d.length === 14) return formatCNPJ(d);
+	// fallback
+	return v || "";
 }
 
 function formatPhone(v: string) {
@@ -76,6 +98,26 @@ function isValidCNPJ(cnpjRaw: string) {
 	return cnpj.slice(-2) === `${dv1}${dv2}`;
 }
 
+function isValidCPF(cpfRaw: string) {
+	const cpf = (cpfRaw || "").replace(/\D/g, "");
+	if (cpf.length !== 11) return false;
+	if (/^(\d)\1{10}$/.test(cpf)) return false;
+
+	let sum = 0;
+	for (let i = 0; i < 9; i++) sum += Number(cpf[i]) * (10 - i);
+	let d1 = (sum * 10) % 11;
+	if (d1 === 10) d1 = 0;
+	if (d1 !== Number(cpf[9])) return false;
+
+	sum = 0;
+	for (let i = 0; i < 10; i++) sum += Number(cpf[i]) * (11 - i);
+	let d2 = (sum * 10) % 11;
+	if (d2 === 10) d2 = 0;
+	if (d2 !== Number(cpf[10])) return false;
+
+	return true;
+}
+
 /* ========= datas ========= */
 function parseBRDate(d: string) {
 	const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((d || "").trim());
@@ -106,7 +148,7 @@ function isValidBRDate(d: string) {
  * - "dd/mm/yyyy" => mantém
  * - "dd-mm-yyyy" => "dd/mm/yyyy"
  *
- * NÃO converte "mm/dd/yyyy" (ex: 01/14/2025) — isso deve ser tratado como inválido.
+ * NÃO converte "mm/dd/yyyy"
  */
 function formatBackendDate(raw: any) {
 	const d = String(raw ?? "").trim();
@@ -128,7 +170,7 @@ function formatBackendDate(raw: any) {
 	return d;
 }
 
-/** ✅ converte dd/mm/aaaa => yyyy-mm-dd (ISO) para enviar ao backend */
+/** ✅ converte dd/mm/aaaa => yyyy-mm-dd (ISO) */
 function brToISO(d: string) {
 	const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((d || "").trim());
 	if (!m) return "";
@@ -136,7 +178,7 @@ function brToISO(d: string) {
 	return `${yyyy}-${mm}-${dd}`;
 }
 
-/** máscara simples dd/mm/aaaa (só para digitação) */
+/** máscara simples dd/mm/aaaa */
 function maskBRDateInput(value: string) {
 	const digits = (value || "").replace(/\D/g, "").slice(0, 8); // ddmmyyyy
 	const dd = digits.slice(0, 2);
@@ -212,7 +254,13 @@ export default function ClientesPage() {
 		razaoSocial?: string;
 		dataRegistro?: string;
 	}>({});
-	const [originalCnpj, setOriginalCnpj] = useState<string | null>(null);
+
+	// ✅ novo: alternar CPF no modal
+	const [useCPF, setUseCPF] = useState(false);
+
+	// guarda documento original (CNPJ/CPF) sem máscara, pra montar a URL do PUT
+	const [originalDoc, setOriginalDoc] = useState<string | null>(null);
+
 	const [saving, setSaving] = useState(false);
 
 	/* ====== carregar dados do backend ====== */
@@ -262,9 +310,9 @@ export default function ClientesPage() {
 
 			const uniqueMap = new Map<string, Cliente>();
 			for (const c of mapped) {
-				const cnpjDigits = (c.cnpj || "").replace(/\D/g, "");
+				const docDigits = (c.cnpj || "").replace(/\D/g, "");
 				const key = String(
-					c.id || c.codigo || cnpjDigits || c.razaoSocial.toLowerCase()
+					c.id || c.codigo || docDigits || c.razaoSocial.toLowerCase()
 				);
 				if (!uniqueMap.has(key)) uniqueMap.set(key, c);
 			}
@@ -361,6 +409,20 @@ export default function ClientesPage() {
 		} else setSortDir("asc");
 	}
 
+	// ✅ checa duplicidade de documento (CPF/CNPJ) antes de salvar
+	function isDuplicateDoc(docDigits: string) {
+		const d = onlyDigits(docDigits);
+		if (!d) return false;
+
+		return rows.some((r) => {
+			// ignora o próprio registro no modo edição
+			if (editingId && editingId !== 0 && r.id === editingId) return false;
+
+			const rd = onlyDigits(r.cnpj || "");
+			return rd === d;
+		});
+	}
+
 	async function handleDelete(id: number) {
 		const cliente = rows.find((r) => r.id === id);
 		if (!cliente) return;
@@ -370,17 +432,16 @@ export default function ClientesPage() {
 		);
 		if (!ok) return;
 
-		const cnpjDigits = (cliente.cnpj || "").replace(/\D/g, "");
+		const docDigits = onlyDigits(cliente.cnpj || "");
 		const hojeISO = new Date().toISOString().slice(0, 10);
 		const hojeBR = new Date().toLocaleDateString("pt-BR");
 
-		// ✅ manda dataRegistro em ISO pro backend (evita inverter)
 		const dataBRDel = formatBackendDate(cliente.dataRegistro) || hojeBR;
 		const dataISODel = brToISO(dataBRDel) || hojeISO;
 
 		const payload = {
 			nome: cliente.razaoSocial,
-			cnpj: cnpjDigits,
+			cnpj: docDigits,
 			dataRegistro: dataISODel,
 			nomeContato: cliente.contato ?? "",
 			telefone: cliente.telefone ?? "",
@@ -398,13 +459,13 @@ export default function ClientesPage() {
 		};
 
 		try {
-			await backendFetch(`/autenticacao/cliente/${cnpjDigits}/${SISTEMA_ID}`, {
+			await backendFetch(`/autenticacao/cliente/${docDigits}/${SISTEMA_ID}`, {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(payload),
 			});
 
-			console.log(`✅ Cliente ${cnpjDigits} cancelado`);
+			console.log(`✅ Cliente ${docDigits} cancelado`);
 			await loadRows();
 		} catch (e) {
 			console.error("❌ Falha ao cancelar cliente:", e);
@@ -416,11 +477,16 @@ export default function ClientesPage() {
 		const c = rows.find((r) => r.id === id);
 		if (!c) return;
 
+		const digits = onlyDigits(c.cnpj || "");
+		const isCpf = digits.length === 11;
+
 		setEditingId(id);
-		setOriginalCnpj(c.cnpj?.replace(/\D/g, "") || null);
+		setOriginalDoc(digits || null);
+		setUseCPF(isCpf);
+
 		setEditForm({
 			...c,
-			cnpj: c.cnpj?.replace(/\D/g, ""),
+			cnpj: digits, // mantém dígitos pra editar melhor
 			dataRegistro: formatBackendDate(c.dataRegistro),
 		});
 		setErrors({});
@@ -430,7 +496,8 @@ export default function ClientesPage() {
 		setEditingId(null);
 		setEditForm({});
 		setErrors({});
-		setOriginalCnpj(null);
+		setOriginalDoc(null);
+		setUseCPF(false);
 	}
 
 	async function handleEditSave() {
@@ -444,17 +511,33 @@ export default function ClientesPage() {
 		} = {};
 
 		const email = (editForm.email ?? "").trim();
-		const cnpjDigits = (editForm.cnpj ?? "").toString().replace(/\D/g, "");
+		const docDigits = onlyDigits((editForm.cnpj ?? "").toString());
 		const razaoSocial = (editForm.razaoSocial ?? "").trim();
-
-		// ✅ normaliza e valida dd/mm/aaaa (pra UI)
 		const dataRegistro = formatBackendDate(editForm.dataRegistro ?? "").trim();
 
-		if (!razaoSocial) errs.razaoSocial = "Razão social é obrigatória.";
+		// obrigatórios PF: Nome + CPF
+		if (!razaoSocial) errs.razaoSocial = "Nome/Razão social é obrigatória.";
+
+		// mantém regra existente: email obrigatório
 		if (!email) errs.email = "Email é obrigatório.";
 		else if (!isValidEmail(email)) errs.email = "Email inválido.";
-		if (!cnpjDigits) errs.cnpj = "CNPJ é obrigatório.";
-		else if (!isValidCNPJ(cnpjDigits)) errs.cnpj = "CNPJ inválido.";
+
+		// valida documento conforme tipo
+		if (!docDigits) errs.cnpj = useCPF ? "CPF é obrigatório." : "CNPJ é obrigatório.";
+		else if (useCPF) {
+			if (docDigits.length !== 11) errs.cnpj = "CPF deve ter 11 dígitos.";
+			else if (!isValidCPF(docDigits)) errs.cnpj = "CPF inválido.";
+		} else {
+			if (docDigits.length !== 14) errs.cnpj = "CNPJ deve ter 14 dígitos.";
+			else if (!isValidCNPJ(docDigits)) errs.cnpj = "CNPJ inválido.";
+		}
+
+		// duplicidade (CPF ou CNPJ)
+		if (!errs.cnpj && isDuplicateDoc(docDigits)) {
+			errs.cnpj = useCPF
+				? "CPF duplicado. Já existe um cliente com este CPF."
+				: "CNPJ duplicado. Já existe um cliente com este CNPJ.";
+		}
 
 		if (dataRegistro && !isValidBRDate(dataRegistro)) {
 			errs.dataRegistro = "Data inválida. Use dd/mm/aaaa.";
@@ -465,7 +548,6 @@ export default function ClientesPage() {
 			return;
 		}
 
-		// ✅ manda em ISO pro backend (evita inverter dd/mm)
 		const dataBR = dataRegistro || new Date().toLocaleDateString("pt-BR");
 		const dataISO = brToISO(dataBR) || new Date().toISOString().slice(0, 10);
 
@@ -474,7 +556,7 @@ export default function ClientesPage() {
 			nomeContato: editForm.contato ?? "",
 			razaoSocial: razaoSocial,
 			contato: editForm.contato ?? "",
-			cnpj: cnpjDigits,
+			cnpj: docDigits, // CPF/CNPJ no mesmo campo do backend
 			dataRegistro: dataISO,
 			telefone: editForm.telefone ?? "",
 			email: email,
@@ -490,21 +572,22 @@ export default function ClientesPage() {
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payloadBase),
 				});
-				console.log(`✅ Cliente ${cnpjDigits} criado`);
+				console.log(`✅ Cliente ${docDigits} criado`);
 			} else {
-				const pathCnpj = originalCnpj || cnpjDigits;
-				await backendFetch(`/autenticacao/cliente/${pathCnpj}/${SISTEMA_ID}`, {
+				const pathDoc = originalDoc || docDigits;
+				await backendFetch(`/autenticacao/cliente/${pathDoc}/${SISTEMA_ID}`, {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payloadBase),
 				});
-				console.log(`✅ Cliente ${pathCnpj} atualizado`);
+				console.log(`✅ Cliente ${pathDoc} atualizado`);
 			}
 
 			setEditingId(null);
 			setEditForm({});
 			setErrors({});
-			setOriginalCnpj(null);
+			setOriginalDoc(null);
+			setUseCPF(false);
 			await loadRows();
 		} catch (e) {
 			console.error("❌ Falha ao salvar cliente:", e);
@@ -516,7 +599,9 @@ export default function ClientesPage() {
 
 	function handleAdd() {
 		setEditingId(0);
-		setOriginalCnpj(null);
+		setOriginalDoc(null);
+		setUseCPF(false);
+
 		setEditForm({
 			codigo: rows.length ? Math.max(...rows.map((r) => r.codigo)) + 1 : 1,
 			razaoSocial: "",
@@ -570,7 +655,10 @@ export default function ClientesPage() {
 
 					<div className="mt-2 grid grid-cols-1 gap-1 text-sm text-gray-700">
 						<div>
-							<span className="text-gray-500">CNPJ:</span> {formatCNPJ(r.cnpj)}
+							<span className="text-gray-500">
+								{onlyDigits(r.cnpj).length === 11 ? "CPF:" : "CNPJ:"}
+							</span>{" "}
+							{formatDoc(r.cnpj)}
 						</div>
 						<div>
 							<span className="text-gray-500">Data:</span>{" "}
@@ -713,7 +801,7 @@ export default function ClientesPage() {
 												className="px-3 py-3 w-44 text-left whitespace-nowrap cursor-pointer"
 												onClick={() => toggleSort("cnpj")}
 											>
-												CNPJ{" "}
+												Documento{" "}
 												{sortKey === "cnpj"
 													? sortDir === "asc"
 														? "▲"
@@ -805,7 +893,7 @@ export default function ClientesPage() {
 												</td>
 
 												<td className="px-3 py-3 whitespace-nowrap text-left">
-													{formatCNPJ(r.cnpj)}
+													{formatDoc(r.cnpj)}
 												</td>
 
 												<td className="px-3 py-3 whitespace-nowrap text-left">
@@ -841,7 +929,7 @@ export default function ClientesPage() {
 										{pageData.length === 0 && (
 											<tr>
 												<td className="px-3 py-8 text-center text-gray-500" colSpan={8}>
-													Nenhum registro encontrado.
+													{loading ? "Carregando..." : "Nenhum registro encontrado."}
 												</td>
 											</tr>
 										)}
@@ -854,7 +942,11 @@ export default function ClientesPage() {
 							<div className="text-sm text-gray-700">
 								{filtered.length} registro(s) • Página {page} de {totalPages}
 							</div>
-							<div className="flex items-center gap-2" role="navigation" aria-label="Paginação">
+							<div
+								className="flex items-center gap-2"
+								role="navigation"
+								aria-label="Paginação"
+							>
 								<button
 									className="flex text-sm items-center justify-center rounded-xl bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
 									onClick={() => setPage(1)}
@@ -926,7 +1018,9 @@ export default function ClientesPage() {
 									</label>
 
 									<label className="text-sm">
-										<span className="mb-1 block text-black">Razão Social *</span>
+										<span className="mb-1 block text-black">
+											{useCPF ? "Nome *" : "Razão Social *"}
+										</span>
 										<input
 											type="text"
 											value={editForm.razaoSocial ?? ""}
@@ -937,7 +1031,7 @@ export default function ClientesPage() {
 													...prev,
 													razaoSocial: v.trim()
 														? undefined
-														: "Razão social é obrigatória.",
+														: "Nome/Razão social é obrigatória.",
 												}));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
@@ -951,34 +1045,111 @@ export default function ClientesPage() {
 										)}
 									</label>
 
+									{/* ✅ CPF/CNPJ com toggle */}
 									<label className="text-sm">
-										<span className="mb-1 block text-black">CNPJ *</span>
+										<div className="mb-1 flex items-center justify-between gap-2">
+											<span className="block text-black">
+												{useCPF ? "CPF *" : "CNPJ *"}
+											</span>
+
+											<label className="inline-flex items-center gap-2 text-xs text-gray-700 select-none">
+												<input
+													type="checkbox"
+													checked={useCPF}
+													onChange={(e) => {
+														const checked = e.target.checked;
+														setUseCPF(checked);
+														setEditForm((prev) => ({ ...prev, cnpj: "" }));
+														setErrors((prev) => ({ ...prev, cnpj: undefined }));
+
+														// em edição: ao trocar tipo, perde "originalDoc" propositalmente?
+														// não: mantemos originalDoc para PUT localizar o registro original.
+														// (mas a validação já impede duplicidade)
+													}}
+												/>
+												CPF
+											</label>
+										</div>
+
 										<input
 											type="text"
-											value={editForm.cnpj ?? ""}
+											value={String(editForm.cnpj ?? "")}
 											onChange={(e) => {
+												const maxLen = useCPF ? 11 : 14;
 												const digits = e.target.value
 													.replace(/\D/g, "")
-													.slice(0, 14);
+													.slice(0, maxLen);
+
 												setEditForm((prev) => ({ ...prev, cnpj: digits }));
-												if (!digits)
+
+												if (!digits) {
 													setErrors((prev) => ({
 														...prev,
-														cnpj: "CNPJ é obrigatório.",
+														cnpj: useCPF ? "CPF é obrigatório." : "CNPJ é obrigatório.",
 													}));
-												else if (!isValidCNPJ(digits))
-													setErrors((prev) => ({ ...prev, cnpj: "CNPJ inválido." }));
-												else setErrors((prev) => ({ ...prev, cnpj: undefined }));
+													return;
+												}
+
+												if (useCPF) {
+													if (digits.length !== 11) {
+														setErrors((prev) => ({
+															...prev,
+															cnpj: "CPF deve ter 11 dígitos.",
+														}));
+													} else if (!isValidCPF(digits)) {
+														setErrors((prev) => ({
+															...prev,
+															cnpj: "CPF inválido.",
+														}));
+													} else if (isDuplicateDoc(digits)) {
+														setErrors((prev) => ({
+															...prev,
+															cnpj: "CPF duplicado. Já existe um cliente com este CPF.",
+														}));
+													} else {
+														setErrors((prev) => ({ ...prev, cnpj: undefined }));
+													}
+												} else {
+													if (digits.length !== 14) {
+														setErrors((prev) => ({
+															...prev,
+															cnpj: "CNPJ deve ter 14 dígitos.",
+														}));
+													} else if (!isValidCNPJ(digits)) {
+														setErrors((prev) => ({
+															...prev,
+															cnpj: "CNPJ inválido.",
+														}));
+													} else if (isDuplicateDoc(digits)) {
+														setErrors((prev) => ({
+															...prev,
+															cnpj: "CNPJ duplicado. Já existe um cliente com este CNPJ.",
+														}));
+													} else {
+														setErrors((prev) => ({ ...prev, cnpj: undefined }));
+													}
+												}
 											}}
 											onBlur={() => {
+												setEditForm((prev) => {
+													const digits = onlyDigits(String(prev.cnpj ?? ""));
+													return {
+														...prev,
+														cnpj: useCPF ? formatCPF(digits) : formatCNPJ(digits),
+													};
+												});
+											}}
+											onFocus={() => {
 												setEditForm((prev) => ({
 													...prev,
-													cnpj: formatCNPJ(String(prev.cnpj ?? "")),
+													cnpj: onlyDigits(String(prev.cnpj ?? "")),
 												}));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
 												errors.cnpj ? "border-red-500" : "border-gray-300"
 											} text-black`}
+											placeholder={useCPF ? "000.000.000-00" : "00.000.000/0000-00"}
+											inputMode="numeric"
 										/>
 										{errors.cnpj && (
 											<p className="mt-1 text-xs text-red-600">{errors.cnpj}</p>
@@ -994,7 +1165,6 @@ export default function ClientesPage() {
 												const masked = maskBRDateInput(e.target.value);
 												setEditForm((prev) => ({ ...prev, dataRegistro: masked }));
 
-												// valida só quando tiver completo
 												if (masked.length === 10) {
 													setErrors((prev) => ({
 														...prev,
@@ -1024,7 +1194,9 @@ export default function ClientesPage() {
 											inputMode="numeric"
 										/>
 										{errors.dataRegistro && (
-											<p className="mt-1 text-xs text-red-600">{errors.dataRegistro}</p>
+											<p className="mt-1 text-xs text-red-600">
+												{errors.dataRegistro}
+											</p>
 										)}
 									</label>
 
@@ -1072,7 +1244,10 @@ export default function ClientesPage() {
 														email: "Email é obrigatório.",
 													}));
 												else if (!isValidEmail(v))
-													setErrors((prev) => ({ ...prev, email: "Email inválido." }));
+													setErrors((prev) => ({
+														...prev,
+														email: "Email inválido.",
+													}));
 												else setErrors((prev) => ({ ...prev, email: undefined }));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
