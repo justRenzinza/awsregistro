@@ -641,7 +641,7 @@ export default function ControleDeSistemaPage() {
                             </button>
                             <button
                                 onClick={() => handleDelete(r.id)}
-                                className="w-7 h-7 rounded-xl bg-red-500 text-white hover:bg-red-600 transition-transform transform hover:scale-110"
+                                className="w-7 h-7 rounded-xl bg-red-400 text-white hover:bg-red-600 transition-transform transform hover:scale-110"
                             >
                                 ✖
                             </button>
@@ -832,7 +832,7 @@ export default function ControleDeSistemaPage() {
                                                         </button>
                                                         <button
                                                             onClick={() => handleDelete(r.id)}
-                                                            className="w-7 h-7 rounded-xl bg-red-500 text-white hover:bg-red-600 transition-transform transform hover:scale-110"
+                                                            className="w-7 h-7 rounded-xl bg-red-400 text-white hover:bg-red-600 transition-transform transform hover:scale-110"
                                                         >
                                                             ✖
                                                         </button>
