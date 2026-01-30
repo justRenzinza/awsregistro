@@ -107,21 +107,17 @@ export default function LoginPage() {
 		<div className="flex min-h-screen items-center justify-center bg-gray-100 bg-cover bg-center px-4">
 			<div className="w-full max-w-sm rounded-2xl bg-white shadow-lg p-8 sm:p-10 text-gray-900">
 				<div className="mb-6 flex justify-center">
-					<div className="relative w-full max-w-xs aspect-[1600/914]">
+					<div className="relative h-40 w-full max-w-md mx-auto">
 						<Image
-							src="/allware-logo-30-anos.jpeg"
+							src="/awsregistro-novo-letrado.jpeg"
 							alt="Logo Allware 30 anos"
 							fill
-							className="object-contain"
+							className="object-cover scale-125"
 							priority
 							unoptimized
 						/>
 					</div>
 				</div>
-
-				<h2 className="text-center text-2xl font-semibold mb-2 text-gray-900">
-					AWSRegistro
-				</h2>
 				<p className="text-center text-sm mb-5 text-gray-600">
 					Acesse com seu usuário de sistema
 				</p>
@@ -171,7 +167,7 @@ export default function LoginPage() {
 						disabled={loading}
 						className="w-full rounded-full py-2 mt-4 font-medium text-white bg-gradient-to-b from-blue-700 to-blue-400 transition-transform duration-200 ease-in-out transform hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed"
 					>
-						{loading ? "Entrando..." : "Login"}
+						{loading ? "Entrando..." : "Entrar"}
 					</button>
 				</form>
 			</div>

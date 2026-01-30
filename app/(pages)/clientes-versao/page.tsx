@@ -31,37 +31,38 @@ function normalizeVersion(v: any): string | null {
 	return s;
 }
 
-/* ========= mapeamento da API ========= */
-function mapRowFromApi(row: any): LinhaClienteVersao {
-	const versaoAtual = normalizeVersion(
-		row.versaoAtual ??
-			row.versao_atual ??
-			row.versaoSistemaAtual ??
-			row.versao_sistema_atual ??
-			row.versao
-	);
+/* ========= mapeamento da API /clientes ========= */
+function mapRowsFromCliente(cliente: any): LinhaClienteVersao[] {
+	const clienteId = Number(cliente?.id ?? 0);
+	const clienteNome = String(cliente?.nome ?? "");
 
-	const versaoAnterior = normalizeVersion(
-		row.versaoAnterior ??
-			row.versao_anterior ??
-			row.versaoSistemaAnterior ??
-			row.versao_sistema_anterior ??
-			row.versaoOld ??
-			row.versao_antiga
-	);
+	if (!clienteId || !clienteNome) return [];
 
-	return {
-		id: Number(row.codigo ?? row.idCliente ?? row.id ?? 0),
-		nome_cliente:
-			row.razaoSocial ??
-			row.nome ??
-			row.nomeCliente ??
-			row.cliente ??
-			"",
-		nome_sistema: row.sistema ?? row.nomeSistema ?? row.nome_sistema ?? "",
-		versao_atual: versaoAtual,
-		versao_anterior: versaoAnterior,
-	};
+	const sistemas = Array.isArray(cliente?.sistemas) ? cliente.sistemas : [];
+
+	if (sistemas.length === 0) return [];
+
+	return sistemas.map((sistema: any) => {
+		const versaoAtual = normalizeVersion(
+			sistema?.versaoAtual ?? sistema?.versao_atual ?? sistema?.versao
+		);
+
+		const versaoAnterior = normalizeVersion(
+			sistema?.versaoAnterior ?? sistema?.versao_anterior ?? sistema?.versaoOld
+		);
+
+		const nomeSistema = String(
+			sistema?.nome ?? sistema?.nomeSistema ?? sistema?.sistema ?? ""
+		);
+
+		return {
+			id: clienteId,
+			nome_cliente: clienteNome,
+			nome_sistema: nomeSistema,
+			versao_atual: versaoAtual,
+			versao_anterior: versaoAnterior,
+		};
+	});
 }
 
 export default function ClientesVersaoPage() {
@@ -82,23 +83,16 @@ export default function ClientesVersaoPage() {
 		try {
 			setIsLoading(true);
 
-			const data = await backendFetch("/autenticacao/listaclientes", {
+			const data = await backendFetch("/clientes?limit=1000&offset=0", {
 				method: "GET",
 			});
 
-			console.log(
-				"Resposta /autenticacao/listaclientes (ClientesVersao):",
-				data
-			);
+			console.log("Resposta /clientes (ClientesVersao):", data);
 
 			let lista: any[] = [];
 			const anyData: any = data;
 
-			if (Array.isArray(anyData?.listaclientes)) {
-				lista = anyData.listaclientes;
-			} else if (Array.isArray(anyData?.listacliente)) {
-				lista = anyData.listacliente;
-			} else if (Array.isArray(anyData)) {
+			if (Array.isArray(anyData)) {
 				lista = anyData;
 			} else if (anyData && typeof anyData === "object") {
 				const d: any = anyData;
@@ -117,13 +111,17 @@ export default function ClientesVersaoPage() {
 				}
 			}
 
-			// mapeia
-			const mapped = lista.map((row) => mapRowFromApi(row));
+			// mapeia: cada cliente pode ter N sistemas, então gera N linhas
+			const allRows: LinhaClienteVersao[] = [];
+			for (const cliente of lista) {
+				const clienteRows = mapRowsFromCliente(cliente);
+				allRows.push(...clienteRows);
+			}
 
-			// consolida por cliente + sistema
+			// consolida por cliente + sistema (remove duplicatas)
 			const map = new Map<string, LinhaClienteVersao>();
 
-			for (const r of mapped) {
+			for (const r of allRows) {
 				const key = `${r.id}|${r.nome_cliente.toLowerCase()}|${r.nome_sistema.toLowerCase()}`;
 
 				const existing = map.get(key);

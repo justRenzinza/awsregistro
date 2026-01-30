@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { toCSV, downloadCSV } from "../../helpers/export";
 import Sidebar from "@/app/components/Sidebar";
 import { backendFetch } from "@/lib/backend";
@@ -13,14 +13,47 @@ export type Cliente = {
 	id: number;
 	codigo: number;
 	razaoSocial: string;
-	cnpj: string; // aqui pode vir CNPJ (14) OU CPF (11)
-	dataRegistro: string; // dd/mm/yyyy
+	nomeFantasia?: string;
+	cnpj: string;
+	dataRegistro: string;
 	contato: string;
 	telefone: string;
 	email: string;
-	// status / contrato
-	idStatus?: number; // 1=Regular, 2=Irregular(S/Restrição), 3=Cancelado (soft delete), 4=Com Restrição
+	idStatus?: number;
 	status?: string | null;
+};
+
+type ClienteApiSistema = {
+	id?: number;
+	idCliente?: number;
+	idSistema: number;
+	nome?: string;
+	observacao?: string;
+	quantidadeLicenca?: number;
+	quantidadeDiaLiberacao?: number;
+	idStatus?: number;
+	status?: string;
+	observacaoStatus?: string;
+	versaoAnterior?: string;
+	versaoAtual?: string;
+	dataAtualizacao?: string;
+	passoAtualizacao?: number;
+	quantidadeBancoDados?: number;
+	quantidadeCnpj?: number;
+	portaMblock?: number;
+	ipMblock?: string;
+};
+
+type ClienteApi = {
+	id: number;
+	nome: string;
+	nomeFantasia?: string;
+	cnpj: string;
+	dataRegistro: string;
+	nomeContato?: string;
+	telefone?: string;
+	email?: string;
+	sistemas?: ClienteApiSistema[];
 };
 
 /* ========= helpers gerais ========= */
@@ -46,12 +79,10 @@ function formatCPF(v: string) {
 		.replace(/^(\d{3}\.\d{3}\.\d{3})(\d{1,2}).*$/, "$1-$2");
 }
 
-/** ✅ mostra CPF/CNPJ automaticamente */
 function formatDoc(v: string) {
 	const d = onlyDigits(v);
 	if (d.length === 11) return formatCPF(d);
 	if (d.length === 14) return formatCNPJ(d);
-	// fallback
 	return v || "";
 }
 
@@ -142,25 +173,13 @@ function isValidBRDate(d: string) {
 	return parseBRDate(d) > 0;
 }
 
-/**
- * Converte:
- * - "YYYY-MM-DD" ou "YYYY-MM-DDTHH..." => "dd/mm/yyyy"
- * - "dd/mm/yyyy" => mantém
- * - "dd-mm-yyyy" => "dd/mm/yyyy"
- *
- * NÃO converte "mm/dd/yyyy"
- */
 function formatBackendDate(raw: any) {
 	const d = String(raw ?? "").trim();
 	if (!d) return "";
 
-	// já é BR (dd/mm/yyyy)
 	if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) return d;
-
-	// dd-mm-yyyy => dd/mm/yyyy
 	if (/^\d{2}-\d{2}-\d{4}$/.test(d)) return d.replace(/-/g, "/");
 
-	// ISO: yyyy-mm-dd or yyyy-mm-ddTHH...
 	const iso = d.includes("T") ? d.split("T")[0] : d;
 	if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
 		const [yyyy, mm, dd] = iso.split("-");
@@ -170,7 +189,6 @@ function formatBackendDate(raw: any) {
 	return d;
 }
 
-/** ✅ converte dd/mm/aaaa => yyyy-mm-dd (ISO) */
 function brToISO(d: string) {
 	const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((d || "").trim());
 	if (!m) return "";
@@ -178,9 +196,8 @@ function brToISO(d: string) {
 	return `${yyyy}-${mm}-${dd}`;
 }
 
-/** máscara simples dd/mm/aaaa */
 function maskBRDateInput(value: string) {
-	const digits = (value || "").replace(/\D/g, "").slice(0, 8); // ddmmyyyy
+	const digits = (value || "").replace(/\D/g, "").slice(0, 8);
 	const dd = digits.slice(0, 2);
 	const mm = digits.slice(2, 4);
 	const yyyy = digits.slice(4, 8);
@@ -191,33 +208,33 @@ function maskBRDateInput(value: string) {
 	return out;
 }
 
-/* ========= mapeamento da API externa ========= */
+/* ========= mapeamento da API (/clientes) ========= */
 function mapClienteFromApi(row: any): Cliente {
+	const r = row as ClienteApi;
+
+	const sistema = Array.isArray(r?.sistemas)
+		? r.sistemas.find((s) => Number(s.idSistema) === SISTEMA_ID) ?? r.sistemas[0]
+		: undefined;
+
+	// Se nomeFantasia for igual ao nome (razão social), considerar como vazio
+	const nomeFantasiaOriginal = r.nomeFantasia ? String(r.nomeFantasia).trim() : "";
+	const razaoSocial = String(r.nome ?? "").trim();
+	const nomeFantasia = nomeFantasiaOriginal && nomeFantasiaOriginal !== razaoSocial 
+		? nomeFantasiaOriginal 
+		: "";
+
 	return {
-		id: Number(row.id ?? row.idCliente ?? row.codigo ?? 0),
-		codigo: Number(row.codigo ?? row.id ?? row.idCliente ?? 0),
-		razaoSocial:
-			row.razaoSocial ??
-			row.razao_social ??
-			row.nome ??
-			row.nomeCliente ??
-			"",
-		cnpj: row.cnpj ?? row.cnpjCpf ?? row.cnpj_cpf ?? "",
-		dataRegistro: formatBackendDate(
-			row.dataRegistro ??
-				row.data_registro ??
-				row.datCadastro ??
-				row.data ??
-				""
-		),
-		contato: row.contato ?? row.nomeContato ?? row.responsavel ?? "",
-		telefone: row.telefone ?? row.telefoneContato ?? row.celular ?? "",
-		email: row.email ?? row.emailContato ?? "",
-		idStatus:
-			row.idStatus ??
-			row.id_status ??
-			(row.status === "Irregular (Contrato Cancelado)" ? 3 : undefined),
-		status: row.status ?? row.descricaoStatus ?? null,
+		id: Number(r.id ?? 0),
+		codigo: Number(r.id ?? 0),
+		razaoSocial,
+		nomeFantasia,
+		cnpj: String(r.cnpj ?? ""),
+		dataRegistro: formatBackendDate(r.dataRegistro ?? ""),
+		contato: String(r.nomeContato ?? ""),
+		telefone: String(r.telefone ?? ""),
+		email: String(r.email ?? ""),
+		idStatus: sistema?.idStatus ?? undefined,
+		status: sistema?.status ?? null,
 	};
 }
 
@@ -226,6 +243,7 @@ type SortKey = keyof Pick<
 	Cliente,
 	| "codigo"
 	| "razaoSocial"
+	| "nomeFantasia"
 	| "cnpj"
 	| "dataRegistro"
 	| "contato"
@@ -239,7 +257,6 @@ export default function ClientesPage() {
 	const [page, setPage] = useState(1);
 	const [pageSize] = useState(10);
 
-	// ✅ padrão agora: ordenar por Razão Social (A→Z)
 	const [sortKey, setSortKey] = useState<SortKey | null>("razaoSocial");
 	const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -253,111 +270,115 @@ export default function ClientesPage() {
 		email?: string;
 		razaoSocial?: string;
 		dataRegistro?: string;
+		nomeFantasia?: string;
 	}>({});
 
-	// ✅ novo: alternar CPF no modal
 	const [useCPF, setUseCPF] = useState(false);
-
-	// guarda documento original (CNPJ/CPF) sem máscara, pra montar a URL do PUT
-	const [originalDoc, setOriginalDoc] = useState<string | null>(null);
-
 	const [saving, setSaving] = useState(false);
 
-	/* ====== carregar dados do backend ====== */
-	async function loadRows() {
-		try {
-			setLoading(true);
-			const data = await backendFetch("/autenticacao/listaclientes", {
-				method: "GET",
-			});
+	const debounceRef = useRef<number | null>(null);
+	const requestIdRef = useRef(0);
 
-			console.log("✅ Resposta da API /autenticacao/listaclientes:", data);
+	/* ====== carregar dados do backend (/clientes) ====== */
+	const loadRows = useCallback(
+		async () => {
+			const currentReq = ++requestIdRef.current;
 
-			let lista: any[] = [];
+			try {
+				setLoading(true);
 
-			const anyData: any = data;
-			if (Array.isArray(anyData?.listaclientes)) {
-				lista = anyData.listaclientes;
-			} else if (Array.isArray(anyData?.listacliente)) {
-				lista = anyData.listacliente;
-			} else if (Array.isArray(data)) {
-				lista = data;
-			} else if (data && typeof data === "object") {
-				const d: any = data;
+				const params = new URLSearchParams();
+				params.set("limit", "1000");
+				params.set("offset", "0");
 
-				if (Array.isArray(d.data)) lista = d.data;
-				else if (Array.isArray(d.items)) lista = d.items;
-				else if (Array.isArray(d.result)) lista = d.result;
-				else if (Array.isArray(d.clientes)) lista = d.clientes;
-				else if (Array.isArray(d.lista)) lista = d.lista;
-				else if (Array.isArray(d.value)) lista = d.value;
-				else if (Array.isArray(d.$values)) lista = d.$values;
-				else {
-					const values = Object.values(d);
-					if (values.length === 1 && Array.isArray(values[0])) {
-						lista = values[0] as any[];
-					}
+				const data = await backendFetch(`/clientes?${params.toString()}`, {
+					method: "GET",
+				});
+
+				if (currentReq !== requestIdRef.current) return;
+
+				let lista: any[] = [];
+				if (Array.isArray(data)) lista = data;
+				else if (data && typeof data === "object") {
+					const d: any = data;
+					if (Array.isArray(d.data)) lista = d.data;
+					else if (Array.isArray(d.items)) lista = d.items;
+					else if (Array.isArray(d.result)) lista = d.result;
+					else if (Array.isArray(d.value)) lista = d.value;
+					else if (Array.isArray(d.$values)) lista = d.$values;
 				}
-			}
 
-			if (!Array.isArray(lista)) {
-				console.warn("⚠️ Não foi possível identificar a lista de clientes:", data);
-				setRows([]);
-				return;
-			}
+				if (!Array.isArray(lista)) {
+					console.warn("⚠️ Não foi possível identificar a lista de clientes:", data);
+					setRows([]);
+					return;
+				}
 
-			const mapped: Cliente[] = lista.map(mapClienteFromApi);
+				const mapped: Cliente[] = lista.map(mapClienteFromApi);
 
-			const uniqueMap = new Map<string, Cliente>();
-			for (const c of mapped) {
-				const docDigits = (c.cnpj || "").replace(/\D/g, "");
-				const key = String(
-					c.id || c.codigo || docDigits || c.razaoSocial.toLowerCase()
+				const uniqueMap = new Map<string, Cliente>();
+				for (const c of mapped) {
+					const docDigits = onlyDigits(c.cnpj || "");
+					const key = String(
+						c.id || c.codigo || docDigits || c.razaoSocial.toLowerCase()
+					);
+					if (!uniqueMap.has(key)) uniqueMap.set(key, c);
+				}
+				let unique = Array.from(uniqueMap.values());
+
+				unique = unique.filter(
+					(c) =>
+						c.idStatus !== 3 &&
+						!String(c.status || "").toLowerCase().includes("cancelado")
 				);
-				if (!uniqueMap.has(key)) uniqueMap.set(key, c);
+
+				setRows(unique);
+				setPage(1);
+			} catch (e) {
+				console.error("❌ Falha ao buscar clientes:", e);
+				alert("Não foi possível carregar os clientes. Verifique sua conexão.");
+			} finally {
+				if (currentReq === requestIdRef.current) setLoading(false);
 			}
-			let unique = Array.from(uniqueMap.values());
-
-			// remove clientes cancelados (idStatus = 3)
-			unique = unique.filter(
-				(c) =>
-					c.idStatus !== 3 &&
-					!String(c.status || "").toLowerCase().includes("cancelado")
-			);
-
-			setRows(unique);
-			console.log(`✅ ${unique.length} clientes carregados`);
-
-			setPage(1);
-		} catch (e) {
-			console.error("❌ Falha ao buscar clientes:", e);
-			alert("Não foi possível carregar os clientes. Verifique sua conexão.");
-		} finally {
-			setLoading(false);
-		}
-	}
+		},
+		[]
+	);
 
 	useEffect(() => {
 		loadRows();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	/* ===== busca + ordenação ===== */
+	function scheduleSearch(v: string) {
+		if (debounceRef.current) window.clearTimeout(debounceRef.current);
+		debounceRef.current = window.setTimeout(() => {
+			setQuery(v);
+			setPage(1);
+		}, 200);
+	}
+
+	/* ===== busca + ordenação (100% local) ===== */
 	const filtered = useMemo<Cliente[]>(() => {
 		const q = query.trim().toLowerCase();
-		let data = rows.filter((r) =>
-			[
-				String(r.codigo),
-				r.razaoSocial,
-				r.cnpj,
-				r.dataRegistro,
-				r.contato,
-				r.telefone,
-				r.email,
-			]
-				.join(" ")
-				.toLowerCase()
-				.includes(q)
-		);
+		let data = rows;
+
+		if (q) {
+			data = rows.filter((r) =>
+				[
+					String(r.codigo),
+					r.razaoSocial,
+					r.nomeFantasia ?? "",
+					r.cnpj,
+					r.dataRegistro,
+					r.contato,
+					r.telefone,
+					r.email,
+				]
+					.join(" ")
+					.toLowerCase()
+					.includes(q)
+			);
+		}
 
 		if (sortKey && sortDir) {
 			data = [...data].sort((a, b) => {
@@ -409,18 +430,207 @@ export default function ClientesPage() {
 		} else setSortDir("asc");
 	}
 
-	// ✅ checa duplicidade de documento (CPF/CNPJ) antes de salvar
 	function isDuplicateDoc(docDigits: string) {
-		const d = onlyDigits(docDigits);
-		if (!d) return false;
-
+		const normalized = onlyDigits(docDigits);
 		return rows.some((r) => {
-			// ignora o próprio registro no modo edição
+			const other = onlyDigits(r.cnpj || "");
+			if (!other) return false;
 			if (editingId && editingId !== 0 && r.id === editingId) return false;
-
-			const rd = onlyDigits(r.cnpj || "");
-			return rd === d;
+			return other === normalized;
 		});
+	}
+
+	function handleEditOpen(id: number) {
+		const c = rows.find((r) => r.id === id);
+		if (!c) return;
+
+		const digits = onlyDigits(c.cnpj || "");
+		const isCpf = digits.length === 11;
+
+		setEditingId(id);
+		setUseCPF(isCpf);
+
+		setEditForm({
+			...c,
+			cnpj: digits,
+			dataRegistro: formatBackendDate(c.dataRegistro),
+			nomeFantasia: c.nomeFantasia ?? "",
+		});
+		setErrors({});
+	}
+
+	function handleEditCancel() {
+		setEditingId(null);
+		setEditForm({});
+		setErrors({});
+		setUseCPF(false);
+	}
+
+	function handleAdd() {
+		setEditingId(0);
+		setUseCPF(false);
+
+		setEditForm({
+			codigo: rows.length ? Math.max(...rows.map((r) => r.codigo)) + 1 : 1,
+			razaoSocial: "",
+			nomeFantasia: "",
+			cnpj: "",
+			dataRegistro: new Date().toLocaleDateString("pt-BR"),
+			contato: "",
+			telefone: "",
+			email: "",
+		});
+		setErrors({});
+	}
+
+	function handleExport() {
+		const csv = toCSV(filtered);
+		const nome = `clientes_${new Date().toISOString().slice(0, 10)}.csv`;
+		downloadCSV(csv, nome);
+	}
+
+	function buildClientePayloadBase(params: {
+		id?: number;
+		nome: string;
+		nomeFantasia: string;
+		cnpj: string;
+		dataRegistroISO: string;
+		nomeContato: string;
+		telefone: string;
+		email: string;
+		idStatus?: number;
+		status?: string;
+		observacaoStatus?: string;
+	}) {
+		const nowISO = new Date().toISOString();
+
+		const baseSistema: ClienteApiSistema = {
+			idSistema: SISTEMA_ID,
+			idStatus: params.idStatus ?? 1,
+			status: params.status ?? "Regular",
+			observacaoStatus: params.observacaoStatus ?? "",
+			dataAtualizacao: nowISO,
+			passoAtualizacao: 0,
+			quantidadeLicenca: 0,
+			quantidadeDiaLiberacao: 0,
+			versaoAnterior: "",
+			versaoAtual: "",
+			quantidadeBancoDados: 0,
+			quantidadeCnpj: 0,
+			portaMblock: 0,
+			ipMblock: "",
+			observacao: "",
+			nome: "",
+		};
+
+		// Se nomeFantasia for igual ao nome, enviar vazio
+		const nomeFantasiaFinal = params.nomeFantasia.trim() === params.nome.trim() 
+			? "" 
+			: params.nomeFantasia.trim();
+
+		return {
+			id: params.id ?? 0,
+			nome: params.nome,
+			nomeFantasia: nomeFantasiaFinal,
+			cnpj: params.cnpj,
+			dataRegistro: params.dataRegistroISO,
+			nomeContato: params.nomeContato,
+			telefone: params.telefone,
+			email: params.email,
+			sistemas: [baseSistema],
+		};
+	}
+
+	async function handleEditSave() {
+		if (editingId === null) return;
+
+		const errs: {
+			cnpj?: string;
+			email?: string;
+			razaoSocial?: string;
+			dataRegistro?: string;
+		} = {};
+
+		const email = (editForm.email ?? "").trim();
+		const docDigits = onlyDigits(String(editForm.cnpj ?? ""));
+		const razaoSocial = (editForm.razaoSocial ?? "").trim();
+		const nomeFantasia = (editForm.nomeFantasia ?? "").trim();
+		const dataRegistroBR = formatBackendDate(editForm.dataRegistro ?? "").trim();
+
+		if (!razaoSocial) errs.razaoSocial = "Nome/Razão social é obrigatório.";
+
+		if (!email) errs.email = "Email é obrigatório.";
+		else if (!isValidEmail(email)) errs.email = "Email inválido.";
+
+		if (!docDigits) errs.cnpj = useCPF ? "CPF é obrigatório." : "CNPJ é obrigatório.";
+		else if (useCPF) {
+			if (docDigits.length !== 11) errs.cnpj = "CPF deve ter 11 dígitos.";
+			else if (!isValidCPF(docDigits)) errs.cnpj = "CPF inválido.";
+			else if (isDuplicateDoc(docDigits)) errs.cnpj = "CPF duplicado no cadastro.";
+		} else {
+			if (docDigits.length !== 14) errs.cnpj = "CNPJ deve ter 14 dígitos.";
+			else if (!isValidCNPJ(docDigits)) errs.cnpj = "CNPJ inválido.";
+			else if (isDuplicateDoc(docDigits)) errs.cnpj = "CNPJ duplicado no cadastro.";
+		}
+
+		if (dataRegistroBR && !isValidBRDate(dataRegistroBR)) {
+			errs.dataRegistro = "Data inválida. Use dd/mm/aaaa.";
+		}
+
+		if (errs.email || errs.cnpj || errs.razaoSocial || errs.dataRegistro) {
+			setErrors(errs);
+			return;
+		}
+
+		const dataBR = dataRegistroBR || new Date().toLocaleDateString("pt-BR");
+		const dataISO = brToISO(dataBR) || new Date().toISOString().slice(0, 10);
+
+		const payload = buildClientePayloadBase({
+			id: editingId === 0 ? 0 : editingId,
+			nome: razaoSocial,
+			nomeFantasia,
+			cnpj: docDigits,
+			dataRegistroISO: dataISO,
+			nomeContato: String(editForm.contato ?? ""),
+			telefone: String(editForm.telefone ?? ""),
+			email,
+			idStatus: 1,
+			status: "Regular",
+		});
+
+		console.log("📤 Payload sendo enviado:", JSON.stringify(payload, null, 2));
+
+		try {
+			setSaving(true);
+
+			if (editingId === 0) {
+				const response = await backendFetch(`/clientes`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payload),
+				});
+				console.log("✅ Resposta POST:", response);
+			} else {
+				const response = await backendFetch(`/clientes/${editingId}`, {
+					method: "PUT",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payload),
+				});
+				console.log("✅ Resposta PUT:", response);
+			}
+
+			setEditingId(null);
+			setEditForm({});
+			setErrors({});
+			setUseCPF(false);
+
+			await loadRows();
+		} catch (e) {
+			console.error("❌ Falha ao salvar cliente:", e);
+			alert("Não foi possível salvar o cliente. Verifique os dados e tente novamente.");
+		} finally {
+			setSaving(false);
+		}
 	}
 
 	async function handleDelete(id: number) {
@@ -439,185 +649,32 @@ export default function ClientesPage() {
 		const dataBRDel = formatBackendDate(cliente.dataRegistro) || hojeBR;
 		const dataISODel = brToISO(dataBRDel) || hojeISO;
 
-		const payload = {
+		const payload = buildClientePayloadBase({
+			id,
 			nome: cliente.razaoSocial,
+			nomeFantasia: cliente.nomeFantasia ?? "",
 			cnpj: docDigits,
-			dataRegistro: dataISODel,
+			dataRegistroISO: dataISODel,
 			nomeContato: cliente.contato ?? "",
 			telefone: cliente.telefone ?? "",
 			email: cliente.email ?? "",
-			quantidadeLicenca: 0,
-			quantidadeDiaLiberacao: 0,
 			idStatus: 3,
 			status: "Irregular (Contrato Cancelado)",
-			idSistema: SISTEMA_ID,
 			observacaoStatus: `Cancelado via AWSRegistro em ${hojeBR}`,
-			versaoAnterior: "",
-			versaoAtual: "",
-			dataAtualizacao: hojeISO,
-			passoAtualizacao: 0,
-		};
+		});
 
 		try {
-			await backendFetch(`/autenticacao/cliente/${docDigits}/${SISTEMA_ID}`, {
+			await backendFetch(`/clientes/${id}`, {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(payload),
 			});
 
-			console.log(`✅ Cliente ${docDigits} cancelado`);
 			await loadRows();
 		} catch (e) {
 			console.error("❌ Falha ao cancelar cliente:", e);
 			alert("Não foi possível cancelar o contrato do cliente.");
 		}
-	}
-
-	function handleEditOpen(id: number) {
-		const c = rows.find((r) => r.id === id);
-		if (!c) return;
-
-		const digits = onlyDigits(c.cnpj || "");
-		const isCpf = digits.length === 11;
-
-		setEditingId(id);
-		setOriginalDoc(digits || null);
-		setUseCPF(isCpf);
-
-		setEditForm({
-			...c,
-			cnpj: digits, // mantém dígitos pra editar melhor
-			dataRegistro: formatBackendDate(c.dataRegistro),
-		});
-		setErrors({});
-	}
-
-	function handleEditCancel() {
-		setEditingId(null);
-		setEditForm({});
-		setErrors({});
-		setOriginalDoc(null);
-		setUseCPF(false);
-	}
-
-	async function handleEditSave() {
-		if (editingId === null) return;
-
-		const errs: {
-			cnpj?: string;
-			email?: string;
-			razaoSocial?: string;
-			dataRegistro?: string;
-		} = {};
-
-		const email = (editForm.email ?? "").trim();
-		const docDigits = onlyDigits((editForm.cnpj ?? "").toString());
-		const razaoSocial = (editForm.razaoSocial ?? "").trim();
-		const dataRegistro = formatBackendDate(editForm.dataRegistro ?? "").trim();
-
-		// obrigatórios PF: Nome + CPF
-		if (!razaoSocial) errs.razaoSocial = "Nome/Razão social é obrigatória.";
-
-		// mantém regra existente: email obrigatório
-		if (!email) errs.email = "Email é obrigatório.";
-		else if (!isValidEmail(email)) errs.email = "Email inválido.";
-
-		// valida documento conforme tipo
-		if (!docDigits) errs.cnpj = useCPF ? "CPF é obrigatório." : "CNPJ é obrigatório.";
-		else if (useCPF) {
-			if (docDigits.length !== 11) errs.cnpj = "CPF deve ter 11 dígitos.";
-			else if (!isValidCPF(docDigits)) errs.cnpj = "CPF inválido.";
-		} else {
-			if (docDigits.length !== 14) errs.cnpj = "CNPJ deve ter 14 dígitos.";
-			else if (!isValidCNPJ(docDigits)) errs.cnpj = "CNPJ inválido.";
-		}
-
-		// duplicidade (CPF ou CNPJ)
-		if (!errs.cnpj && isDuplicateDoc(docDigits)) {
-			errs.cnpj = useCPF
-				? "CPF duplicado. Já existe um cliente com este CPF."
-				: "CNPJ duplicado. Já existe um cliente com este CNPJ.";
-		}
-
-		if (dataRegistro && !isValidBRDate(dataRegistro)) {
-			errs.dataRegistro = "Data inválida. Use dd/mm/aaaa.";
-		}
-
-		if (errs.email || errs.cnpj || errs.razaoSocial || errs.dataRegistro) {
-			setErrors(errs);
-			return;
-		}
-
-		const dataBR = dataRegistro || new Date().toLocaleDateString("pt-BR");
-		const dataISO = brToISO(dataBR) || new Date().toISOString().slice(0, 10);
-
-		const payloadBase = {
-			nome: razaoSocial,
-			nomeContato: editForm.contato ?? "",
-			razaoSocial: razaoSocial,
-			contato: editForm.contato ?? "",
-			cnpj: docDigits, // CPF/CNPJ no mesmo campo do backend
-			dataRegistro: dataISO,
-			telefone: editForm.telefone ?? "",
-			email: email,
-			idSistema: SISTEMA_ID,
-		};
-
-		try {
-			setSaving(true);
-
-			if (editingId === 0) {
-				await backendFetch("/autenticacao/cliente", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(payloadBase),
-				});
-				console.log(`✅ Cliente ${docDigits} criado`);
-			} else {
-				const pathDoc = originalDoc || docDigits;
-				await backendFetch(`/autenticacao/cliente/${pathDoc}/${SISTEMA_ID}`, {
-					method: "PUT",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(payloadBase),
-				});
-				console.log(`✅ Cliente ${pathDoc} atualizado`);
-			}
-
-			setEditingId(null);
-			setEditForm({});
-			setErrors({});
-			setOriginalDoc(null);
-			setUseCPF(false);
-			await loadRows();
-		} catch (e) {
-			console.error("❌ Falha ao salvar cliente:", e);
-			alert("Não foi possível salvar o cliente. Verifique os dados.");
-		} finally {
-			setSaving(false);
-		}
-	}
-
-	function handleAdd() {
-		setEditingId(0);
-		setOriginalDoc(null);
-		setUseCPF(false);
-
-		setEditForm({
-			codigo: rows.length ? Math.max(...rows.map((r) => r.codigo)) + 1 : 1,
-			razaoSocial: "",
-			cnpj: "",
-			dataRegistro: new Date().toLocaleDateString("pt-BR"),
-			contato: "",
-			telefone: "",
-			email: "",
-		});
-		setErrors({});
-	}
-
-	function handleExport() {
-		const csv = toCSV(filtered);
-		const nome = `clientes_${new Date().toISOString().slice(0, 10)}.csv`;
-		downloadCSV(csv, nome);
 	}
 
 	/* ====== LISTA MOBILE ====== */
@@ -631,6 +688,13 @@ export default function ClientesPage() {
 							<div className="font-medium text-gray-900 break-words">
 								{r.razaoSocial}
 							</div>
+
+							{r.nomeFantasia?.trim() ? (
+								<div className="text-xs text-gray-600 mt-1">
+									<span className="text-gray-500">Fantasia:</span>{" "}
+									{r.nomeFantasia}
+								</div>
+							) : null}
 						</div>
 
 						<div className="flex items-start gap-1">
@@ -697,21 +761,23 @@ export default function ClientesPage() {
 			<div className="flex">
 				<Sidebar active="clientes" />
 
-				<div className="flex-1">
+				<div className="flex-1 min-w-0">
 					<div className="sticky top-0 z-20 sm:hidden bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 border-b flex items-center justify-center">
 						<div className="font-semibold text-white">Clientes</div>
 					</div>
 
-					<main className="mx-auto w-full max-w-[95rem] p-4 md:p-6">
-						<div className="mb-4 space-y-2">
+					<main className="w-full p-3 md:p-4 lg:p-6">
+						<div className="mb-3 lg:mb-4 space-y-2">
 							<div className="flex flex-wrap items-center gap-2 sm:hidden w-full">
 								<input
 									type="text"
 									placeholder="Pesquisa rápida"
 									value={query}
 									onChange={(e) => {
-										setQuery(e.target.value);
+										const v = e.target.value;
+										setQuery(v);
 										setPage(1);
+										scheduleSearch(v);
 									}}
 									className="flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2 placeholder:text-gray-500 text-md shadow"
 								/>
@@ -733,50 +799,50 @@ export default function ClientesPage() {
 								</button>
 							</div>
 
-							<div className="hidden sm:flex sm:items-center sm:justify-between">
-								<div className="flex w-full items-center gap-2">
-									<input
-										type="text"
-										placeholder="Pesquisa rápida"
-										value={query}
-										onChange={(e) => {
-											setQuery(e.target.value);
-											setPage(1);
-										}}
-										className="w-full sm:w-72 rounded-xl border border-gray-200 placeholder:text-gray-500 bg-white px-3 py-2 text-md text-gray-600 shadow"
-									/>
-									<button
-										onClick={handleAdd}
-										className="rounded-xl px-3 py-2 bg-white text-sm font-medium text-gray-600 shadow transform transition-transform hover:scale-105"
-										title="Adicionar"
-										aria-label="Adicionar"
-									>
-										➕ Adicionar
-									</button>
-									<button
-										onClick={handleExport}
-										className="rounded-xl px-3 py-2 bg-white text-sm font-medium text-gray-600 shadow transform transition-transform hover:scale-105"
-										title="Exportar"
-										aria-label="Exportar"
-									>
-										⬇️ Exportar
-									</button>
-								</div>
+							<div className="hidden sm:flex sm:items-center sm:gap-2 sm:flex-wrap lg:flex-nowrap">
+								<input
+									type="text"
+									placeholder="Pesquisa rápida"
+									value={query}
+									onChange={(e) => {
+										const v = e.target.value;
+										setQuery(v);
+										setPage(1);
+										scheduleSearch(v);
+									}}
+									className="w-full sm:w-56 lg:w-72 rounded-xl border border-gray-200 placeholder:text-gray-500 bg-white px-3 py-2 text-sm text-gray-600 shadow"
+								/>
+								<button
+									onClick={handleAdd}
+									className="rounded-xl px-2.5 lg:px-3 py-2 bg-white text-xs lg:text-sm font-medium text-gray-600 shadow transform transition-transform hover:scale-105 whitespace-nowrap"
+									title="Adicionar"
+									aria-label="Adicionar"
+								>
+									➕ Adicionar
+								</button>
+								<button
+									onClick={handleExport}
+									className="rounded-xl px-2.5 lg:px-3 py-2 bg-white text-xs lg:text-sm font-medium text-gray-600 shadow transform transition-transform hover:scale-105 whitespace-nowrap"
+									title="Exportar"
+									aria-label="Exportar"
+								>
+									⬇️ Exportar
+								</button>
 							</div>
 						</div>
 
 						<MobileList />
 
 						<div className="hidden sm:block rounded-xl bg-white shadow overflow-hidden">
-							<div className="w-full">
-								<table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+							<div className="overflow-x-auto">
+								<table className="w-full border-collapse text-sm">
 									<thead>
 										<tr className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-											<th className="px-3 py-3 w-24 text-left whitespace-nowrap">
+											<th className="px-2 lg:px-3 py-2 lg:py-3 w-20 lg:w-24 text-left whitespace-nowrap text-xs lg:text-sm">
 												Ações
 											</th>
 											<th
-												className="px-3 py-3 w-20 text-left whitespace-nowrap cursor-pointer"
+												className="px-2 lg:px-3 py-2 lg:py-3 w-16 lg:w-20 text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
 												onClick={() => toggleSort("codigo")}
 											>
 												Código{" "}
@@ -787,18 +853,31 @@ export default function ClientesPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 text-left whitespace-nowrap cursor-pointer"
+												className="px-2 lg:px-3 py-2 lg:py-3 max-w-[130px] lg:max-w-[150px] text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
 												onClick={() => toggleSort("razaoSocial")}
 											>
-												Razão Social{" "}
+												Nome / Razão Social{" "}
 												{sortKey === "razaoSocial"
 													? sortDir === "asc"
 														? "▲"
 														: "▼"
 													: ""}
 											</th>
+
 											<th
-												className="px-3 py-3 w-44 text-left whitespace-nowrap cursor-pointer"
+												className="px-2 lg:px-3 py-2 lg:py-3 max-w-[130px] lg:max-w-[160px] text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
+												onClick={() => toggleSort("nomeFantasia")}
+											>
+												Nome Fantasia{" "}
+												{sortKey === "nomeFantasia"
+													? sortDir === "asc"
+														? "▲"
+														: "▼"
+													: ""}
+											</th>
+
+											<th
+												className="px-2 lg:px-3 py-2 lg:py-3 w-36 lg:w-44 text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
 												onClick={() => toggleSort("cnpj")}
 											>
 												Documento{" "}
@@ -809,7 +888,7 @@ export default function ClientesPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 w-32 text-left whitespace-nowrap cursor-pointer"
+												className="px-2 lg:px-3 py-2 lg:py-3 w-28 lg:w-32 text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
 												onClick={() => toggleSort("dataRegistro")}
 											>
 												Data Cadastro{" "}
@@ -820,7 +899,7 @@ export default function ClientesPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 w-44 text-left whitespace-nowrap cursor-pointer"
+												className="px-2 lg:px-3 py-2 lg:py-3 w-28 lg:w-36 text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
 												onClick={() => toggleSort("contato")}
 											>
 												Contato{" "}
@@ -831,7 +910,7 @@ export default function ClientesPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 w-44 text-left whitespace-nowrap cursor-pointer"
+												className="px-2 lg:px-3 py-2 lg:py-3 w-32 lg:w-40 text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
 												onClick={() => toggleSort("telefone")}
 											>
 												Telefone{" "}
@@ -842,7 +921,7 @@ export default function ClientesPage() {
 													: ""}
 											</th>
 											<th
-												className="px-3 py-3 w-64 text-left whitespace-nowrap cursor-pointer"
+												className="px-2 lg:px-3 py-2 lg:py-3 w-40 lg:w-48 text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
 												onClick={() => toggleSort("email")}
 											>
 												Email{" "}
@@ -861,11 +940,11 @@ export default function ClientesPage() {
 												key={`${page}-${idx}`}
 												className={idx % 2 === 0 ? "bg-white" : "bg-gray-100"}
 											>
-												<td className="px-3 py-3">
-													<div className="flex items-center justify-center gap-2">
+												<td className="px-2 lg:px-3 py-2 lg:py-3">
+													<div className="flex items-center justify-center gap-1 lg:gap-2">
 														<button
 															onClick={() => handleEditOpen(r.id)}
-															className="rounded-xl bg-yellow-400 text-white font-semibold w-7 h-7 hover:bg-yellow-500 transition-transform transform hover:scale-110"
+															className="rounded-xl bg-yellow-400 text-white font-semibold w-6 h-6 lg:w-7 lg:h-7 text-xs lg:text-sm hover:bg-yellow-500 transition-transform transform hover:scale-110"
 															title="Editar"
 															aria-label={`Editar ${r.razaoSocial}`}
 														>
@@ -873,7 +952,7 @@ export default function ClientesPage() {
 														</button>
 														<button
 															onClick={() => handleDelete(r.id)}
-															className="rounded-xl bg-red-400 text-white font-semibold w-7 h-7 hover:bg-red-600 transition-transform transform hover:scale-110"
+															className="rounded-xl bg-red-400 text-white font-semibold w-6 h-6 lg:w-7 lg:h-7 text-xs lg:text-sm hover:bg-red-600 transition-transform transform hover:scale-110"
 															title="Excluir"
 															aria-label={`Excluir ${r.razaoSocial}`}
 														>
@@ -882,54 +961,61 @@ export default function ClientesPage() {
 													</div>
 												</td>
 
-												<td className="px-3 py-3 whitespace-nowrap text-left tabular-nums">
+												<td className="px-2 lg:px-3 py-2 lg:py-3 whitespace-nowrap text-left tabular-nums text-xs lg:text-sm">
 													{r.codigo}
 												</td>
 
-												<td className="px-3 py-3 text-left">
+												<td className="px-2 lg:px-3 py-2 lg:py-3 max-w-[150px] lg:max-w-[170px] text-left text-xs lg:text-sm">
 													<div className="truncate" title={r.razaoSocial}>
 														{r.razaoSocial}
 													</div>
 												</td>
 
-												<td className="px-3 py-3 whitespace-nowrap text-left">
+												<td className="px-2 lg:px-3 py-2 lg:py-3 max-w-[150px] lg:max-w-[180px] text-left text-xs lg:text-sm">
+													<div className="truncate" title={r.nomeFantasia || ""}>
+														{r.nomeFantasia?.trim() ? r.nomeFantasia : "—"}
+													</div>
+												</td>
+
+												<td className="px-2 lg:px-3 py-2 lg:py-3 whitespace-nowrap text-left text-xs lg:text-sm">
 													{formatDoc(r.cnpj)}
 												</td>
 
-												<td className="px-3 py-3 whitespace-nowrap text-left">
+												<td className="px-2 lg:px-3 py-2 lg:py-3 whitespace-nowrap text-left text-xs lg:text-sm">
 													{formatBackendDate(r.dataRegistro)}
 												</td>
 
-												<td className="px-3 py-3 whitespace-nowrap text-left">
-													{r.contato}
+												<td className="px-2 lg:px-3 py-2 lg:py-3 max-w-[120px] lg:max-w-[140px] text-left text-xs lg:text-sm">
+													<div className="truncate" title={r.contato}>
+														{r.contato}
+													</div>
 												</td>
 
-												<td className="px-3 py-3 whitespace-nowrap text-left">
+												<td className="px-2 lg:px-3 py-2 lg:py-3 whitespace-nowrap text-left text-xs lg:text-sm">
 													{formatPhone(r.telefone)}
 												</td>
 
-												<td className="px-3 py-3 whitespace-nowrap text-left">
-													{isValidEmail(r.email) ? (
-														<a
-															href={`mailto:${r.email}`}
-															className="underline-offset-2 hover:underline"
-															title={r.email}
-														>
-															<span className="truncate inline-block max-w-full">
+												<td className="px-2 lg:px-3 py-2 lg:py-3 max-w-[160px] lg:max-w-[180px] text-left text-xs lg:text-sm">
+													<div className="truncate" title={r.email}>
+														{isValidEmail(r.email) ? (
+															<a
+																href={`mailto:${r.email}`}
+																className="underline-offset-2 hover:underline"
+															>
 																{r.email}
-															</span>
-														</a>
-													) : (
-														<span className="text-gray-400">—</span>
-													)}
+															</a>
+														) : (
+															<span className="text-gray-400">—</span>
+														)}
+													</div>
 												</td>
 											</tr>
 										))}
 
 										{pageData.length === 0 && (
 											<tr>
-												<td className="px-3 py-8 text-center text-gray-500" colSpan={8}>
-													{loading ? "Carregando..." : "Nenhum registro encontrado."}
+												<td className="px-3 py-8 text-center text-gray-500" colSpan={9}>
+													Nenhum registro encontrado.
 												</td>
 											</tr>
 										)}
@@ -938,15 +1024,11 @@ export default function ClientesPage() {
 							</div>
 						</div>
 
-						<div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-black">
-							<div className="text-sm text-gray-700">
+						<div className="mt-3 lg:mt-4 flex flex-wrap items-center justify-between gap-3 text-black">
+							<div className="text-xs lg:text-sm text-gray-700">
 								{filtered.length} registro(s) • Página {page} de {totalPages}
 							</div>
-							<div
-								className="flex items-center gap-2"
-								role="navigation"
-								aria-label="Paginação"
-							>
+							<div className="flex items-center gap-2" role="navigation" aria-label="Paginação">
 								<button
 									className="flex text-sm items-center justify-center rounded-xl bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
 									onClick={() => setPage(1)}
@@ -1013,13 +1095,13 @@ export default function ClientesPage() {
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-											disabled={editingId !== 0}
+											disabled
 										/>
 									</label>
 
 									<label className="text-sm">
 										<span className="mb-1 block text-black">
-											{useCPF ? "Nome *" : "Razão Social *"}
+											Nome / Razão Social *
 										</span>
 										<input
 											type="text"
@@ -1031,7 +1113,7 @@ export default function ClientesPage() {
 													...prev,
 													razaoSocial: v.trim()
 														? undefined
-														: "Nome/Razão social é obrigatória.",
+														: "Nome/Razão social é obrigatório.",
 												}));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
@@ -1039,19 +1121,29 @@ export default function ClientesPage() {
 											} text-black`}
 										/>
 										{errors.razaoSocial && (
-											<p className="mt-1 text-xs text-red-600">
-												{errors.razaoSocial}
-											</p>
+											<p className="mt-1 text-xs text-red-600">{errors.razaoSocial}</p>
 										)}
 									</label>
 
-									{/* ✅ CPF/CNPJ com toggle */}
+									<label className="text-sm">
+										<span className="mb-1 block text-black">Nome Fantasia</span>
+										<input
+											type="text"
+											value={editForm.nomeFantasia ?? ""}
+											onChange={(e) => {
+												const v = e.target.value;
+												setEditForm((prev) => ({ ...prev, nomeFantasia: v }));
+											}}
+											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											placeholder="Opcional"
+										/>
+									</label>
+
 									<label className="text-sm">
 										<div className="mb-1 flex items-center justify-between gap-2">
 											<span className="block text-black">
 												{useCPF ? "CPF *" : "CNPJ *"}
 											</span>
-
 											<label className="inline-flex items-center gap-2 text-xs text-gray-700 select-none">
 												<input
 													type="checkbox"
@@ -1061,10 +1153,6 @@ export default function ClientesPage() {
 														setUseCPF(checked);
 														setEditForm((prev) => ({ ...prev, cnpj: "" }));
 														setErrors((prev) => ({ ...prev, cnpj: undefined }));
-
-														// em edição: ao trocar tipo, perde "originalDoc" propositalmente?
-														// não: mantemos originalDoc para PUT localizar o registro original.
-														// (mas a validação já impede duplicidade)
 													}}
 												/>
 												CPF
@@ -1079,7 +1167,6 @@ export default function ClientesPage() {
 												const digits = e.target.value
 													.replace(/\D/g, "")
 													.slice(0, maxLen);
-
 												setEditForm((prev) => ({ ...prev, cnpj: digits }));
 
 												if (!digits) {
@@ -1091,48 +1178,39 @@ export default function ClientesPage() {
 												}
 
 												if (useCPF) {
-													if (digits.length !== 11) {
+													if (digits.length !== 11)
 														setErrors((prev) => ({
 															...prev,
 															cnpj: "CPF deve ter 11 dígitos.",
 														}));
-													} else if (!isValidCPF(digits)) {
+													else if (!isValidCPF(digits))
+														setErrors((prev) => ({ ...prev, cnpj: "CPF inválido." }));
+													else if (isDuplicateDoc(digits))
 														setErrors((prev) => ({
 															...prev,
-															cnpj: "CPF inválido.",
+															cnpj: "CPF duplicado no cadastro.",
 														}));
-													} else if (isDuplicateDoc(digits)) {
-														setErrors((prev) => ({
-															...prev,
-															cnpj: "CPF duplicado. Já existe um cliente com este CPF.",
-														}));
-													} else {
-														setErrors((prev) => ({ ...prev, cnpj: undefined }));
-													}
+													else setErrors((prev) => ({ ...prev, cnpj: undefined }));
 												} else {
-													if (digits.length !== 14) {
+													if (digits.length !== 14)
 														setErrors((prev) => ({
 															...prev,
 															cnpj: "CNPJ deve ter 14 dígitos.",
 														}));
-													} else if (!isValidCNPJ(digits)) {
+													else if (!isValidCNPJ(digits))
+														setErrors((prev) => ({ ...prev, cnpj: "CNPJ inválido." }));
+													else if (isDuplicateDoc(digits))
 														setErrors((prev) => ({
 															...prev,
-															cnpj: "CNPJ inválido.",
+															cnpj: "CNPJ duplicado no cadastro.",
 														}));
-													} else if (isDuplicateDoc(digits)) {
-														setErrors((prev) => ({
-															...prev,
-															cnpj: "CNPJ duplicado. Já existe um cliente com este CNPJ.",
-														}));
-													} else {
-														setErrors((prev) => ({ ...prev, cnpj: undefined }));
-													}
+													else setErrors((prev) => ({ ...prev, cnpj: undefined }));
 												}
 											}}
 											onBlur={() => {
 												setEditForm((prev) => {
-													const digits = onlyDigits(String(prev.cnpj ?? ""));
+													const d = String(prev.cnpj ?? "");
+													const digits = d.replace(/\D/g, "");
 													return {
 														...prev,
 														cnpj: useCPF ? formatCPF(digits) : formatCNPJ(digits),
@@ -1194,9 +1272,7 @@ export default function ClientesPage() {
 											inputMode="numeric"
 										/>
 										{errors.dataRegistro && (
-											<p className="mt-1 text-xs text-red-600">
-												{errors.dataRegistro}
-											</p>
+											<p className="mt-1 text-xs text-red-600">{errors.dataRegistro}</p>
 										)}
 									</label>
 
@@ -1206,10 +1282,7 @@ export default function ClientesPage() {
 											type="text"
 											value={editForm.contato ?? ""}
 											onChange={(e) =>
-												setEditForm((prev) => ({
-													...prev,
-													contato: e.target.value,
-												}))
+												setEditForm((prev) => ({ ...prev, contato: e.target.value }))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
@@ -1220,13 +1293,25 @@ export default function ClientesPage() {
 										<input
 											type="text"
 											value={editForm.telefone ?? ""}
-											onChange={(e) =>
+											onChange={(e) => {
+												const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+												setEditForm((prev) => ({ ...prev, telefone: digits }));
+											}}
+											onBlur={() => {
 												setEditForm((prev) => ({
 													...prev,
-													telefone: e.target.value,
-												}))
-											}
+													telefone: formatPhone(String(prev.telefone ?? "")),
+												}));
+											}}
+											onFocus={() => {
+												setEditForm((prev) => ({
+													...prev,
+													telefone: onlyDigits(String(prev.telefone ?? "")),
+												}));
+											}}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											placeholder="(00) 00000-0000"
+											inputMode="numeric"
 										/>
 									</label>
 
@@ -1238,17 +1323,16 @@ export default function ClientesPage() {
 											onChange={(e) => {
 												const v = e.target.value;
 												setEditForm((prev) => ({ ...prev, email: v }));
-												if (!v)
+												if (!v.trim()) {
 													setErrors((prev) => ({
 														...prev,
 														email: "Email é obrigatório.",
 													}));
-												else if (!isValidEmail(v))
-													setErrors((prev) => ({
-														...prev,
-														email: "Email inválido.",
-													}));
-												else setErrors((prev) => ({ ...prev, email: undefined }));
+												} else if (!isValidEmail(v)) {
+													setErrors((prev) => ({ ...prev, email: "Email inválido." }));
+												} else {
+													setErrors((prev) => ({ ...prev, email: undefined }));
+												}
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
 												errors.email ? "border-red-500" : "border-gray-300"
@@ -1260,22 +1344,19 @@ export default function ClientesPage() {
 									</label>
 								</div>
 
-								<div className="mt-6 flex justify-end gap-2">
+								<div className="mt-6 flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:justify-end">
 									<button
 										onClick={handleEditCancel}
+										className="w-full sm:w-auto rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
 										disabled={saving}
-										className="rounded-xl bg-red-400 px-4 py-2 text-white hover:bg-red-500 transform transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
 									>
 										Cancelar
 									</button>
 									<button
 										onClick={handleEditSave}
+										className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
 										disabled={saving}
-										className="rounded-xl bg-green-500 px-4 py-2 text-white hover:bg-green-600 transform transition-transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
 									>
-										{saving && (
-											<div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-solid border-white border-r-transparent"></div>
-										)}
 										{saving ? "Salvando..." : "Salvar"}
 									</button>
 								</div>

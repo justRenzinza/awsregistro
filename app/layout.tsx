@@ -11,7 +11,7 @@ export const metadata = {
 	title: "AWSRegistro • Painel",
 	description: "Sistema de controle e gestão AWSRegistro",
 	icons: {
-		icon: "/logo-allware-teste.png", // caminho relativo à pasta /public
+		icon: "/logo-branca.png", // caminho relativo à pasta /public
 	},
 };
 

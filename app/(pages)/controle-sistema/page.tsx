@@ -82,12 +82,17 @@ function mapClienteFromApi(row: any): ClienteBase {
 		base?.nomeCliente ??
 		"";
 
+	// Pegar status do sistema 2 (se houver)
+	const sistemas = Array.isArray(base?.sistemas) ? base.sistemas : [];
+	const sistema2 = sistemas.find((s: any) => Number(s?.idSistema) === 2);
+
 	const idStatus =
+		sistema2?.idStatus ??
 		base?.idStatus ??
 		base?.id_status ??
 		(base?.status === "Irregular (Contrato Cancelado)" ? 3 : undefined);
 
-	const status = base?.status ?? base?.descricaoStatus ?? null;
+	const status = sistema2?.status ?? base?.status ?? base?.descricaoStatus ?? null;
 
 	return { id, nome, idStatus, status };
 }
@@ -206,13 +211,12 @@ export default function ControleDeSistemaPage() {
 		| keyof Pick<
 				ControleSistema,
 				"sistema" | "qtdLicenca" | "qtdDiaLiberacao" | "status"
-		>
+		  >
 		| "cliente";
 
 	type SortDir = "asc" | "desc" | null;
 	const [sortKey, setSortKey] = useState<SortKey | null>("cliente");
 	const [sortDir, setSortDir] = useState<SortDir | null>("asc");
-
 
 	/* popup */
 	const [editingId, setEditingId] = useState<number | null>(null);
@@ -250,7 +254,7 @@ export default function ControleDeSistemaPage() {
 
 			// --- CLIENTES ---
 			try {
-				const clientesResp = await backendFetch("/autenticacao/listaclientes", {
+				const clientesResp = await backendFetch("/clientes?limit=1000&offset=0", {
 					method: "GET",
 				});
 
@@ -274,7 +278,7 @@ export default function ControleDeSistemaPage() {
 
 				console.log(`✅ ${clientesArr.length} clientes carregados`);
 			} catch (e: any) {
-				console.error("❌ Erro /autenticacao/listaclientes:", e);
+				console.error("❌ Erro /clientes:", e);
 				if (isUnauthorized(e) && typeof window !== "undefined") {
 					window.location.href = "/";
 					return;
@@ -951,10 +955,9 @@ export default function ControleDeSistemaPage() {
 									</label>
 
 									<label className="text-sm">
-										<span className="block mb-1 text-black">Qtd Licença *</span>
+										<span className="block mb-1 text-black">Qtd Licença</span>
 										<input
 											type="number"
-											min={0}
 											value={form.qtdLicenca ?? 0}
 											onChange={(e) =>
 												setForm((prev) => ({
@@ -963,14 +966,14 @@ export default function ControleDeSistemaPage() {
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											min="0"
 										/>
 									</label>
 
 									<label className="text-sm">
-										<span className="block mb-1 text-black">Qtd Dia Liberação *</span>
+										<span className="block mb-1 text-black">Qtd Dia Liberação</span>
 										<input
 											type="number"
-											min={0}
 											value={form.qtdDiaLiberacao ?? 0}
 											onChange={(e) =>
 												setForm((prev) => ({
@@ -979,14 +982,14 @@ export default function ControleDeSistemaPage() {
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											min="0"
 										/>
 									</label>
 
 									<label className="text-sm">
-										<span className="block mb-1 text-black">Qtd Bancos de Dados</span>
+										<span className="block mb-1 text-black">Qtd Banco</span>
 										<input
 											type="number"
-											min={0}
 											value={form.qtdBanco ?? 0}
 											onChange={(e) =>
 												setForm((prev) => ({
@@ -995,6 +998,7 @@ export default function ControleDeSistemaPage() {
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											min="0"
 										/>
 									</label>
 
@@ -1002,7 +1006,6 @@ export default function ControleDeSistemaPage() {
 										<span className="block mb-1 text-black">Qtd CNPJ</span>
 										<input
 											type="number"
-											min={0}
 											value={form.qtdCnpj ?? 0}
 											onChange={(e) =>
 												setForm((prev) => ({
@@ -1011,45 +1014,94 @@ export default function ControleDeSistemaPage() {
 												}))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											min="0"
 										/>
 									</label>
 
-									{(form.sistema ?? "").toUpperCase() === "MBLOCK" && (
-										<>
-											<label className="text-sm">
-												<span className="block mb-1 text-black">IP</span>
-												<input
-													type="text"
-													value={form.ipMblock ?? ""}
-													onChange={(e) =>
-														setForm((prev) => ({
-															...prev,
-															ipMblock: e.target.value,
-														}))
-													}
-													className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-												/>
-											</label>
+									<label className="text-sm">
+										<span className="block mb-1 text-black">IP Mblock</span>
+										<input
+											type="text"
+											value={form.ipMblock ?? ""}
+											onChange={(e) =>
+												setForm((prev) => ({
+													...prev,
+													ipMblock: e.target.value,
+												}))
+											}
+											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											placeholder="192.168.0.1"
+										/>
+									</label>
 
-											<label className="text-sm">
-												<span className="block mb-1 text-black">Porta</span>
-												<input
-													type="text"
-													value={form.portaMblock ?? ""}
-													onChange={(e) =>
-														setForm((prev) => ({
-															...prev,
-															portaMblock: e.target.value,
-														}))
-													}
-													className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-												/>
-											</label>
-										</>
-									)}
+									<label className="text-sm">
+										<span className="block mb-1 text-black">Porta Mblock</span>
+										<input
+											type="text"
+											value={form.portaMblock ?? ""}
+											onChange={(e) =>
+												setForm((prev) => ({
+													...prev,
+													portaMblock: e.target.value,
+												}))
+											}
+											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											placeholder="8080"
+										/>
+									</label>
 
 									<label className="text-sm md:col-span-2">
-										<span className="block mb-1 text-black">Observações</span>
+										<span className="block mb-1 text-black">Status</span>
+										<div className="grid grid-cols-2 gap-2">
+											<button
+												type="button"
+												onClick={() => setStatus(1)}
+												className={`px-3 py-2 rounded text-sm font-medium transition ${
+													form.idStatus === 1
+														? "bg-green-500 text-white"
+														: "bg-gray-100 text-gray-700 hover:bg-gray-200"
+												}`}
+											>
+												Regular
+											</button>
+											<button
+												type="button"
+												onClick={() => setStatus(2)}
+												className={`px-3 py-2 rounded text-sm font-medium transition ${
+													form.idStatus === 2
+														? "bg-yellow-500 text-white"
+														: "bg-gray-100 text-gray-700 hover:bg-gray-200"
+												}`}
+											>
+												Irregular (Sem Restrição)
+											</button>
+											<button
+												type="button"
+												onClick={() => setStatus(3)}
+												className={`px-3 py-2 rounded text-sm font-medium transition ${
+													form.idStatus === 3
+														? "bg-red-500 text-white"
+														: "bg-gray-100 text-gray-700 hover:bg-gray-200"
+												}`}
+											>
+												Irregular (Contrato Cancelado)
+											</button>
+											<button
+												type="button"
+												onClick={() => setStatus(4)}
+												className={`px-3 py-2 rounded text-sm font-medium transition ${
+													form.idStatus === 4
+														? "bg-orange-500 text-white"
+														: "bg-gray-100 text-gray-700 hover:bg-gray-200"
+												}`}
+											>
+												Irregular (Com Restrição)
+											</button>
+										</div>
+									</label>
+
+									<label className="text-sm md:col-span-2">
+										<span className="block mb-1 text-black">Observação</span>
 										<textarea
 											value={form.observacao ?? ""}
 											onChange={(e) =>
@@ -1058,46 +1110,27 @@ export default function ControleDeSistemaPage() {
 													observacao: e.target.value,
 												}))
 											}
-											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm min-h-[80px]"
+											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											rows={3}
+											placeholder="Observações adicionais..."
 										/>
-									</label>
-
-									<label className="text-sm md:col-span-2">
-										<span className="block mb-1 text-black">Status *</span>
-
-										<div className="space-y-2 text-black">
-											{([1, 2, 3, 4] as const).map((id) => {
-												const label = statusLabelFromId(id);
-												return (
-													<label key={id} className="flex items-center gap-2">
-														<input
-															type="radio"
-															name="status"
-															checked={Number(form.idStatus ?? 1) === id}
-															onChange={() => setStatus(id)}
-														/>
-														<span>{label}</span>
-													</label>
-												);
-											})}
-										</div>
 									</label>
 								</div>
 
-								<div className="mt-6 flex justify-end gap-2">
+								<div className="mt-6 flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:justify-end">
 									<button
 										onClick={handleCancel}
+										className="w-full sm:w-auto rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
 										disabled={saving}
-										className="rounded-xl bg-red-400 px-4 py-2 text-white hover:bg-red-500 transform hover:scale-105 disabled:opacity-60"
 									>
 										Cancelar
 									</button>
 									<button
 										onClick={handleSave}
+										className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
 										disabled={saving}
-										className="rounded-xl bg-green-500 px-4 py-2 text-white hover:bg-green-600 transform hover:scale-105 disabled:opacity-60"
 									>
-										{saving ? "Salvando..." : "Gravar"}
+										{saving ? "Salvando..." : "Salvar"}
 									</button>
 								</div>
 							</div>
