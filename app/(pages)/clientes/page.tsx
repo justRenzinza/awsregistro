@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import { useMemo, useState, useRef, useCallback } from "react";
 import { toCSV, downloadCSV } from "../../helpers/export";
 import Sidebar from "@/app/components/Sidebar";
 import { backendFetch } from "@/lib/backend";
+import { useMountEffect } from "@/hooks/useMountEffect";
 
 /* ========= configuração do sistema ========= */
 const SISTEMA_ID = 2;
@@ -326,6 +327,7 @@ export default function ClientesPage() {
 				}
 				let unique = Array.from(uniqueMap.values());
 
+				// ✅ FILTRAR cancelados (idStatus=3)
 				unique = unique.filter(
 					(c) =>
 						c.idStatus !== 3 &&
@@ -344,10 +346,9 @@ export default function ClientesPage() {
 		[]
 	);
 
-	useEffect(() => {
+	useMountEffect(() => {
 		loadRows();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	});
 
 	function scheduleSearch(v: string) {
 		if (debounceRef.current) window.clearTimeout(debounceRef.current);
@@ -404,17 +405,17 @@ export default function ClientesPage() {
 	const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
 	const pageData = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-	useEffect(() => {
+	useMountEffect(() => {
 		setPage((p) => Math.min(p, totalPages));
-	}, [totalPages]);
+	});
 
-	useEffect(() => {
+	useMountEffect(() => {
 		if (editingId !== null) document.body.style.overflow = "hidden";
 		else document.body.style.overflow = "";
 		return () => {
 			document.body.style.overflow = "";
 		};
-	}, [editingId]);
+	});
 
 	/* ===== ações ===== */
 	function toggleSort(key: SortKey) {
@@ -642,38 +643,76 @@ export default function ClientesPage() {
 		);
 		if (!ok) return;
 
-		const docDigits = onlyDigits(cliente.cnpj || "");
-		const hojeISO = new Date().toISOString().slice(0, 10);
 		const hojeBR = new Date().toLocaleDateString("pt-BR");
 
-		const dataBRDel = formatBackendDate(cliente.dataRegistro) || hojeBR;
-		const dataISODel = brToISO(dataBRDel) || hojeISO;
-
-		const payload = buildClientePayloadBase({
-			id,
-			nome: cliente.razaoSocial,
-			nomeFantasia: cliente.nomeFantasia ?? "",
-			cnpj: docDigits,
-			dataRegistroISO: dataISODel,
-			nomeContato: cliente.contato ?? "",
-			telefone: cliente.telefone ?? "",
-			email: cliente.email ?? "",
-			idStatus: 3,
-			status: "Irregular (Contrato Cancelado)",
-			observacaoStatus: `Cancelado via AWSRegistro em ${hojeBR}`,
-		});
-
 		try {
-			await backendFetch(`/clientes/${id}`, {
+			// ✅ 1. Remove LOCALMENTE primeiro
+			setRows((prev) => prev.filter((r) => r.id !== id));
+
+			// ✅ 2. Primeiro busca os dados completos do cliente
+			const clienteCompleto = await backendFetch(`/clientes/${id}`, {
+				method: "GET",
+			});
+
+			console.log("📥 Cliente completo do backend:", clienteCompleto);
+
+			// ✅ 3. Encontra o sistema PAINEL (SISTEMA_ID = 2)
+			const sistemas = clienteCompleto?.sistemas || [];
+			const sistemaPainel = sistemas.find((s: any) => Number(s.idSistema) === SISTEMA_ID);
+
+			if (!sistemaPainel) {
+				console.error("❌ Sistema PAINEL não encontrado para o cliente");
+				alert("Sistema PAINEL não encontrado. Não foi possível cancelar.");
+				await loadRows();
+				return;
+			}
+
+			console.log("🔍 Sistema PAINEL encontrado:", sistemaPainel);
+
+			// ✅ 4. Atualiza o status do sistema para CANCELADO
+			const sistemaAtualizado = {
+				...sistemaPainel,
+				idStatus: 3,
+				status: "Irregular (Contrato Cancelado)",
+				observacaoStatus: `Cancelado via AWSRegistro em ${hojeBR}`,
+				dataAtualizacao: new Date().toISOString(),
+			};
+
+			// ✅ 5. Monta o payload completo do cliente com o sistema atualizado
+			const todosOsSistemas = sistemas.map((s: any) => 
+				Number(s.idSistema) === SISTEMA_ID ? sistemaAtualizado : s
+			);
+
+			const payload = {
+				id: clienteCompleto.id,
+				nome: clienteCompleto.nome,
+				nomeFantasia: clienteCompleto.nomeFantasia || "",
+				cnpj: clienteCompleto.cnpj,
+				dataRegistro: clienteCompleto.dataRegistro,
+				nomeContato: clienteCompleto.nomeContato || "",
+				telefone: clienteCompleto.telefone || "",
+				email: clienteCompleto.email || "",
+				sistemas: todosOsSistemas,
+			};
+
+			console.log("📤 Payload FINAL sendo enviado:", JSON.stringify(payload, null, 2));
+
+			// ✅ 6. Faz o PUT
+			const response = await backendFetch(`/clientes/${id}`, {
 				method: "PUT",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(payload),
 			});
 
-			await loadRows();
+			console.log("✅ Resposta do PUT:", response);
+			console.log(`✅ Cliente ${id} (${cliente.razaoSocial}) marcado como cancelado`);
+
 		} catch (e) {
 			console.error("❌ Falha ao cancelar cliente:", e);
 			alert("Não foi possível cancelar o contrato do cliente.");
+			
+			// ✅ Recarrega para restaurar o estado correto
+			await loadRows();
 		}
 	}
 
@@ -1226,8 +1265,6 @@ export default function ClientesPage() {
 											className={`w-full rounded border px-3 py-2 text-sm ${
 												errors.cnpj ? "border-red-500" : "border-gray-300"
 											} text-black`}
-											placeholder={useCPF ? "000.000.000-00" : "00.000.000/0000-00"}
-											inputMode="numeric"
 										/>
 										{errors.cnpj && (
 											<p className="mt-1 text-xs text-red-600">{errors.cnpj}</p>
@@ -1235,41 +1272,28 @@ export default function ClientesPage() {
 									</label>
 
 									<label className="text-sm">
-										<span className="mb-1 block text-black">Data de Cadastro</span>
+										<span className="mb-1 block text-black">Data Cadastro</span>
 										<input
 											type="text"
 											value={editForm.dataRegistro ?? ""}
 											onChange={(e) => {
-												const masked = maskBRDateInput(e.target.value);
+												const raw = e.target.value;
+												const masked = maskBRDateInput(raw);
 												setEditForm((prev) => ({ ...prev, dataRegistro: masked }));
 
-												if (masked.length === 10) {
+												if (masked && !isValidBRDate(masked)) {
 													setErrors((prev) => ({
 														...prev,
-														dataRegistro: isValidBRDate(masked)
-															? undefined
-															: "Data inválida. Use dd/mm/aaaa.",
+														dataRegistro: "Data inválida (dd/mm/aaaa).",
 													}));
 												} else {
 													setErrors((prev) => ({ ...prev, dataRegistro: undefined }));
 												}
 											}}
-											onBlur={() => {
-												const v = String(editForm.dataRegistro ?? "").trim();
-												if (v && v.length === 10) {
-													setErrors((prev) => ({
-														...prev,
-														dataRegistro: isValidBRDate(v)
-															? undefined
-															: "Data inválida. Use dd/mm/aaaa.",
-													}));
-												}
-											}}
+											placeholder="dd/mm/aaaa"
 											className={`w-full rounded border px-3 py-2 text-sm ${
 												errors.dataRegistro ? "border-red-500" : "border-gray-300"
 											} text-black`}
-											placeholder="dd/mm/aaaa"
-											inputMode="numeric"
 										/>
 										{errors.dataRegistro && (
 											<p className="mt-1 text-xs text-red-600">{errors.dataRegistro}</p>
@@ -1281,9 +1305,10 @@ export default function ClientesPage() {
 										<input
 											type="text"
 											value={editForm.contato ?? ""}
-											onChange={(e) =>
-												setEditForm((prev) => ({ ...prev, contato: e.target.value }))
-											}
+											onChange={(e) => {
+												const v = e.target.value;
+												setEditForm((prev) => ({ ...prev, contato: v }));
+											}}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 									</label>
@@ -1294,7 +1319,8 @@ export default function ClientesPage() {
 											type="text"
 											value={editForm.telefone ?? ""}
 											onChange={(e) => {
-												const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+												const raw = e.target.value;
+												const digits = raw.replace(/\D/g, "").slice(0, 11);
 												setEditForm((prev) => ({ ...prev, telefone: digits }));
 											}}
 											onBlur={() => {
@@ -1310,8 +1336,6 @@ export default function ClientesPage() {
 												}));
 											}}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-											placeholder="(00) 00000-0000"
-											inputMode="numeric"
 										/>
 									</label>
 
@@ -1323,6 +1347,7 @@ export default function ClientesPage() {
 											onChange={(e) => {
 												const v = e.target.value;
 												setEditForm((prev) => ({ ...prev, email: v }));
+
 												if (!v.trim()) {
 													setErrors((prev) => ({
 														...prev,
@@ -1344,18 +1369,19 @@ export default function ClientesPage() {
 									</label>
 								</div>
 
-								<div className="mt-6 flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:justify-end">
+								<div className="mt-6 flex items-center justify-end gap-3">
 									<button
+										type="button"
 										onClick={handleEditCancel}
-										className="w-full sm:w-auto rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-										disabled={saving}
+										className="rounded-xl bg-gray-200 px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-300"
 									>
 										Cancelar
 									</button>
 									<button
+										type="button"
 										onClick={handleEditSave}
-										className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
 										disabled={saving}
+										className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
 									>
 										{saving ? "Salvando..." : "Salvar"}
 									</button>
