@@ -215,7 +215,7 @@ export default function ControleDeSistemaPage() {
 		| keyof Pick<
 				ControleSistema,
 				"sistema" | "qtdLicenca" | "qtdDiaLiberacao" | "status"
-		>
+		  >
 		| "cliente"
 		| "codigo";
 
@@ -228,9 +228,13 @@ export default function ControleDeSistemaPage() {
 	const [form, setForm] = useState<Partial<ControleSistema>>({});
 	const [saving, setSaving] = useState(false);
 
-	/* ✅ NOVO: Estados para busca de cliente no modal */
+	/* ✅ Estados para busca de cliente no modal */
 	const [clienteSearch, setClienteSearch] = useState("");
 	const [showClienteDropdown, setShowClienteDropdown] = useState(false);
+
+	/* ✅ Estados para busca de sistema no modal */
+	const [sistemaSearch, setSistemaSearch] = useState("");
+	const [showSistemaDropdown, setShowSistemaDropdown] = useState(false);
 
 	/* ✅ helper nome E código do cliente */
 	const nomeCliente = (id: number) =>
@@ -471,7 +475,7 @@ export default function ControleDeSistemaPage() {
 		setPage((p) => Math.min(p, totalPages));
 	}, [totalPages]);
 
-	/* ✅ NOVO: Filtrar clientes com base na busca */
+	/* ✅ Filtrar clientes com base na busca */
 	const filteredClientes = useMemo(() => {
 		if (!clienteSearch.trim()) return clientes;
 		const search = clienteSearch.toLowerCase();
@@ -481,6 +485,13 @@ export default function ControleDeSistemaPage() {
 				String(c.codigo).includes(search)
 		);
 	}, [clientes, clienteSearch]);
+
+	/* ✅ Filtrar sistemas com base na busca */
+	const filteredSistemas = useMemo(() => {
+		if (!sistemaSearch.trim()) return sistemas;
+		const search = sistemaSearch.toLowerCase();
+		return sistemas.filter((s) => s.nome.toLowerCase().includes(search));
+	}, [sistemas, sistemaSearch]);
 
 	/* ações */
 	function handleAdd() {
@@ -500,6 +511,8 @@ export default function ControleDeSistemaPage() {
 		});
 		setClienteSearch("");
 		setShowClienteDropdown(false);
+		setSistemaSearch("");
+		setShowSistemaDropdown(false);
 	}
 
 	function handleEdit(id: number) {
@@ -521,12 +534,16 @@ export default function ControleDeSistemaPage() {
 			status: statusLabelFromId(idStatusInicial),
 		});
 
-		// Pre-preenche o nome do cliente no campo de busca
+		// ✅ Pre-preenche APENAS o nome do cliente (sem o código)
 		const cliente = clientes.find((c) => c.id === r.clienteId);
 		if (cliente) {
-			setClienteSearch(`${cliente.codigo} - ${cliente.nome}`);
+			setClienteSearch(cliente.nome);
 		}
 		setShowClienteDropdown(false);
+
+		// ✅ Pre-preenche o nome do sistema
+		setSistemaSearch(r.sistema);
+		setShowSistemaDropdown(false);
 	}
 
 	async function handleDelete(id: number) {
@@ -554,6 +571,8 @@ export default function ControleDeSistemaPage() {
 		setForm({});
 		setClienteSearch("");
 		setShowClienteDropdown(false);
+		setSistemaSearch("");
+		setShowSistemaDropdown(false);
 	}
 
 	function setStatus(id: number) {
@@ -620,6 +639,8 @@ export default function ControleDeSistemaPage() {
 			setForm({});
 			setClienteSearch("");
 			setShowClienteDropdown(false);
+			setSistemaSearch("");
+			setShowSistemaDropdown(false);
 		} catch (e: any) {
 			console.error("❌ Erro ao salvar:", e);
 
@@ -960,7 +981,7 @@ export default function ControleDeSistemaPage() {
 				</div>
 			</div>
 
-			{/* ✅ POPUP COM INPUT DE BUSCA DE CLIENTE */}
+			{/* ✅ POPUP COM INPUT DE BUSCA DE CLIENTE E SISTEMA */}
 			{editingId !== null && (
 				<div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
 					<div className="absolute inset-0 bg-black/50" onClick={handleCancel} />
@@ -973,23 +994,41 @@ export default function ControleDeSistemaPage() {
 
 							<div className="p-6">
 								<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-									{/* ✅ INPUT DE BUSCA COM DROPDOWN AUTOCOMPLETE */}
+									{/* ✅ INPUT DE BUSCA DE CLIENTE - BLOQUEADO AO EDITAR */}
 									<label className="text-sm md:col-span-2 relative">
 										<span className="block mb-1 text-black">Cliente *</span>
 										<input
 											type="text"
-											placeholder="Digite para pesquisar..."
+											placeholder={editingId === 0 ? "Digite para pesquisar..." : ""}
 											value={clienteSearch}
 											onChange={(e) => {
-												setClienteSearch(e.target.value);
-												setShowClienteDropdown(true);
+												if (editingId === 0) {
+													setClienteSearch(e.target.value);
+													setShowClienteDropdown(true);
+												}
 											}}
-											onFocus={() => setShowClienteDropdown(true)}
-											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											onFocus={() => {
+												if (editingId === 0) {
+													setShowClienteDropdown(true);
+												}
+											}}
+											disabled={editingId !== 0}
+											className={`w-full rounded border px-3 py-2 text-sm ${
+												editingId !== 0
+													? "border-gray-300 bg-gray-100 text-gray-600 cursor-not-allowed"
+													: "border-gray-300 text-black"
+											}`}
 										/>
 
-										{/* Dropdown de resultados */}
-										{showClienteDropdown && filteredClientes.length > 0 && (
+										{/* Mensagem de aviso quando está editando */}
+										{editingId !== 0 && (
+											<span className="text-xs text-red-600 mt-1 block">
+												Edite o nome do cliente na página Cadastro de Cliente
+											</span>
+										)}
+
+										{/* Dropdown de resultados - só aparece ao adicionar novo */}
+										{editingId === 0 && showClienteDropdown && filteredClientes.length > 0 && (
 											<ul className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto bg-white border border-gray-300 rounded shadow-lg">
 												{filteredClientes.slice(0, 50).map((c) => (
 													<li
@@ -1008,25 +1047,39 @@ export default function ControleDeSistemaPage() {
 										)}
 									</label>
 
-									<label className="text-sm md:col-span-2">
+									{/* ✅ INPUT DE BUSCA DE SISTEMA COM DROPDOWN AUTOCOMPLETE */}
+									<label className="text-sm md:col-span-2 relative">
 										<span className="block mb-1 text-black">Sistema *</span>
-										<select
-											value={form.sistema ?? ""}
-											onChange={(e) =>
-												setForm((prev) => ({
-													...prev,
-													sistema: e.target.value,
-												}))
-											}
+										<input
+											type="text"
+											placeholder="Digite para pesquisar..."
+											value={sistemaSearch}
+											onChange={(e) => {
+												setSistemaSearch(e.target.value);
+												setShowSistemaDropdown(true);
+											}}
+											onFocus={() => setShowSistemaDropdown(true)}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-										>
-											<option value="">Selecione</option>
-											{sistemas.map((s) => (
-												<option key={s.id} value={s.nome}>
-													{s.nome}
-												</option>
-											))}
-										</select>
+										/>
+
+										{/* Dropdown de resultados */}
+										{showSistemaDropdown && filteredSistemas.length > 0 && (
+											<ul className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto bg-white border border-gray-300 rounded shadow-lg">
+												{filteredSistemas.map((s) => (
+													<li
+														key={s.id}
+														onClick={() => {
+															setForm((prev) => ({ ...prev, sistema: s.nome }));
+															setSistemaSearch(s.nome);
+															setShowSistemaDropdown(false);
+														}}
+														className="px-3 py-2 hover:bg-blue-100 cursor-pointer text-sm text-black"
+													>
+														{s.nome}
+													</li>
+												))}
+											</ul>
+										)}
 									</label>
 
 									<label className="text-sm">

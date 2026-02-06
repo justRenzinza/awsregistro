@@ -1,3 +1,4 @@
+// controle de registro
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
