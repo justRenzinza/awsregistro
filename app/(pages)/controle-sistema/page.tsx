@@ -493,58 +493,6 @@ export default function ControleDeSistemaPage() {
 		return sistemas.filter((s) => s.nome.toLowerCase().includes(search));
 	}, [sistemas, sistemaSearch]);
 
-	/* ✅ FUNÇÃO PARA BUSCAR DADOS DO CLIENTE QUANDO TROCAR */
-	async function loadClienteData(clienteId: number, sistemaId: number) {
-		try {
-			// Busca se já existe um registro desse cliente com esse sistema
-			const existingRecord = rows.find(
-				(r) => r.clienteId === clienteId && r.idSistema === sistemaId
-			);
-
-			if (existingRecord) {
-				// Se já existe, preenche com os dados existentes
-				console.log("✅ Cliente já tem esse sistema cadastrado, carregando dados...");
-				
-				setForm((prev) => ({
-					...prev,
-					clienteId: clienteId,
-					qtdLicenca: existingRecord.qtdLicenca,
-					qtdDiaLiberacao: existingRecord.qtdDiaLiberacao,
-					qtdBanco: existingRecord.qtdBanco ?? 0,
-					qtdCnpj: existingRecord.qtdCnpj ?? 0,
-					ipMblock: existingRecord.ipMblock ?? "",
-					portaMblock: existingRecord.portaMblock ?? "",
-					observacao: existingRecord.observacao ?? "",
-					idStatus: existingRecord.idStatus,
-					status: existingRecord.status,
-				}));
-			} else {
-				// Se não existe, preenche com valores padrão
-				console.log("✅ Cliente não tem esse sistema, usando valores padrão");
-				
-				// Busca o status do cliente
-				const cliente = clientes.find((c) => c.id === clienteId);
-				const clienteIdStatus = cliente?.idStatus ?? 1;
-				
-				setForm((prev) => ({
-					...prev,
-					clienteId: clienteId,
-					qtdLicenca: 0,
-					qtdDiaLiberacao: 0,
-					qtdBanco: 0,
-					qtdCnpj: 0,
-					ipMblock: "",
-					portaMblock: "",
-					observacao: "",
-					idStatus: clienteIdStatus,
-					status: statusLabelFromId(clienteIdStatus),
-				}));
-			}
-		} catch (e: any) {
-			console.error("❌ Erro ao buscar dados do cliente:", e);
-		}
-	}
-
 	/* ações */
 	function handleAdd() {
 		setEditingId(0);
@@ -1033,7 +981,7 @@ export default function ControleDeSistemaPage() {
 				</div>
 			</div>
 
-			{/* ✅ POPUP COM CARREGAMENTO AUTOMÁTICO AO TROCAR CLIENTE */}
+			{/* ✅ POPUP - CAMPO CLIENTE LIBERADO, MANTÉM DADOS AO TROCAR */}
 			{editingId !== null && (
 				<div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
 					<div className="absolute inset-0 bg-black/50" onClick={handleCancel} />
@@ -1046,7 +994,7 @@ export default function ControleDeSistemaPage() {
 
 							<div className="p-6">
 								<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-									{/* ✅ INPUT DE BUSCA DE CLIENTE COM CARREGAMENTO AUTOMÁTICO */}
+									{/* ✅ INPUT DE BUSCA DE CLIENTE - LIBERADO, MANTÉM DADOS */}
 									<label className="text-sm md:col-span-2 relative">
 										<span className="block mb-1 text-black">Cliente *</span>
 										<input
@@ -1067,16 +1015,11 @@ export default function ControleDeSistemaPage() {
 												{filteredClientes.slice(0, 50).map((c) => (
 													<li
 														key={c.id}
-														onClick={async () => {
+														onClick={() => {
+															// ✅ APENAS TROCA O CLIENTE, MANTÉM TODOS OS OUTROS DADOS
 															setForm((prev) => ({ ...prev, clienteId: c.id }));
 															setClienteSearch(`${c.codigo} - ${c.nome}`);
 															setShowClienteDropdown(false);
-
-															// ✅ CARREGA OS DADOS DO CLIENTE AUTOMATICAMENTE
-															const sistemaId = sistemas.find((s) => s.nome === form.sistema)?.id ?? 0;
-															if (sistemaId) {
-																await loadClienteData(c.id, sistemaId);
-															}
 														}}
 														className="px-3 py-2 hover:bg-blue-100 cursor-pointer text-sm text-black"
 													>
@@ -1108,15 +1051,10 @@ export default function ControleDeSistemaPage() {
 												{filteredSistemas.map((s) => (
 													<li
 														key={s.id}
-														onClick={async () => {
+														onClick={() => {
 															setForm((prev) => ({ ...prev, sistema: s.nome }));
 															setSistemaSearch(s.nome);
 															setShowSistemaDropdown(false);
-
-															// ✅ Se já tiver cliente selecionado, carrega os dados
-															if (form.clienteId) {
-																await loadClienteData(form.clienteId, s.id);
-															}
 														}}
 														className="px-3 py-2 hover:bg-blue-100 cursor-pointer text-sm text-black"
 													>
