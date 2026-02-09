@@ -493,6 +493,58 @@ export default function ControleDeSistemaPage() {
 		return sistemas.filter((s) => s.nome.toLowerCase().includes(search));
 	}, [sistemas, sistemaSearch]);
 
+	/* ✅ FUNÇÃO PARA BUSCAR DADOS DO CLIENTE QUANDO TROCAR */
+	async function loadClienteData(clienteId: number, sistemaId: number) {
+		try {
+			// Busca se já existe um registro desse cliente com esse sistema
+			const existingRecord = rows.find(
+				(r) => r.clienteId === clienteId && r.idSistema === sistemaId
+			);
+
+			if (existingRecord) {
+				// Se já existe, preenche com os dados existentes
+				console.log("✅ Cliente já tem esse sistema cadastrado, carregando dados...");
+				
+				setForm((prev) => ({
+					...prev,
+					clienteId: clienteId,
+					qtdLicenca: existingRecord.qtdLicenca,
+					qtdDiaLiberacao: existingRecord.qtdDiaLiberacao,
+					qtdBanco: existingRecord.qtdBanco ?? 0,
+					qtdCnpj: existingRecord.qtdCnpj ?? 0,
+					ipMblock: existingRecord.ipMblock ?? "",
+					portaMblock: existingRecord.portaMblock ?? "",
+					observacao: existingRecord.observacao ?? "",
+					idStatus: existingRecord.idStatus,
+					status: existingRecord.status,
+				}));
+			} else {
+				// Se não existe, preenche com valores padrão
+				console.log("✅ Cliente não tem esse sistema, usando valores padrão");
+				
+				// Busca o status do cliente
+				const cliente = clientes.find((c) => c.id === clienteId);
+				const clienteIdStatus = cliente?.idStatus ?? 1;
+				
+				setForm((prev) => ({
+					...prev,
+					clienteId: clienteId,
+					qtdLicenca: 0,
+					qtdDiaLiberacao: 0,
+					qtdBanco: 0,
+					qtdCnpj: 0,
+					ipMblock: "",
+					portaMblock: "",
+					observacao: "",
+					idStatus: clienteIdStatus,
+					status: statusLabelFromId(clienteIdStatus),
+				}));
+			}
+		} catch (e: any) {
+			console.error("❌ Erro ao buscar dados do cliente:", e);
+		}
+	}
+
 	/* ações */
 	function handleAdd() {
 		setEditingId(0);
@@ -534,10 +586,10 @@ export default function ControleDeSistemaPage() {
 			status: statusLabelFromId(idStatusInicial),
 		});
 
-		// ✅ Pre-preenche APENAS o nome do cliente (sem o código)
+		// ✅ Pre-preenche o nome do cliente
 		const cliente = clientes.find((c) => c.id === r.clienteId);
 		if (cliente) {
-			setClienteSearch(cliente.nome);
+			setClienteSearch(`${cliente.codigo} - ${cliente.nome}`);
 		}
 		setShowClienteDropdown(false);
 
@@ -981,7 +1033,7 @@ export default function ControleDeSistemaPage() {
 				</div>
 			</div>
 
-			{/* ✅ POPUP COM INPUT DE BUSCA DE CLIENTE E SISTEMA */}
+			{/* ✅ POPUP COM CARREGAMENTO AUTOMÁTICO AO TROCAR CLIENTE */}
 			{editingId !== null && (
 				<div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
 					<div className="absolute inset-0 bg-black/50" onClick={handleCancel} />
@@ -994,49 +1046,37 @@ export default function ControleDeSistemaPage() {
 
 							<div className="p-6">
 								<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-									{/* ✅ INPUT DE BUSCA DE CLIENTE - BLOQUEADO AO EDITAR */}
+									{/* ✅ INPUT DE BUSCA DE CLIENTE COM CARREGAMENTO AUTOMÁTICO */}
 									<label className="text-sm md:col-span-2 relative">
 										<span className="block mb-1 text-black">Cliente *</span>
 										<input
 											type="text"
-											placeholder={editingId === 0 ? "Digite para pesquisar..." : ""}
+											placeholder="Digite para pesquisar..."
 											value={clienteSearch}
 											onChange={(e) => {
-												if (editingId === 0) {
-													setClienteSearch(e.target.value);
-													setShowClienteDropdown(true);
-												}
+												setClienteSearch(e.target.value);
+												setShowClienteDropdown(true);
 											}}
-											onFocus={() => {
-												if (editingId === 0) {
-													setShowClienteDropdown(true);
-												}
-											}}
-											disabled={editingId !== 0}
-											className={`w-full rounded border px-3 py-2 text-sm ${
-												editingId !== 0
-													? "border-gray-300 bg-gray-100 text-gray-600 cursor-not-allowed"
-													: "border-gray-300 text-black"
-											}`}
+											onFocus={() => setShowClienteDropdown(true)}
+											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 
-										{/* Mensagem de aviso quando está editando */}
-										{editingId !== 0 && (
-											<span className="text-xs text-red-600 mt-1 block">
-												Edite o nome do cliente na página Cadastro de Cliente
-											</span>
-										)}
-
-										{/* Dropdown de resultados - só aparece ao adicionar novo */}
-										{editingId === 0 && showClienteDropdown && filteredClientes.length > 0 && (
+										{/* Dropdown de resultados */}
+										{showClienteDropdown && filteredClientes.length > 0 && (
 											<ul className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto bg-white border border-gray-300 rounded shadow-lg">
 												{filteredClientes.slice(0, 50).map((c) => (
 													<li
 														key={c.id}
-														onClick={() => {
+														onClick={async () => {
 															setForm((prev) => ({ ...prev, clienteId: c.id }));
 															setClienteSearch(`${c.codigo} - ${c.nome}`);
 															setShowClienteDropdown(false);
+
+															// ✅ CARREGA OS DADOS DO CLIENTE AUTOMATICAMENTE
+															const sistemaId = sistemas.find((s) => s.nome === form.sistema)?.id ?? 0;
+															if (sistemaId) {
+																await loadClienteData(c.id, sistemaId);
+															}
 														}}
 														className="px-3 py-2 hover:bg-blue-100 cursor-pointer text-sm text-black"
 													>
@@ -1068,10 +1108,15 @@ export default function ControleDeSistemaPage() {
 												{filteredSistemas.map((s) => (
 													<li
 														key={s.id}
-														onClick={() => {
+														onClick={async () => {
 															setForm((prev) => ({ ...prev, sistema: s.nome }));
 															setSistemaSearch(s.nome);
 															setShowSistemaDropdown(false);
+
+															// ✅ Se já tiver cliente selecionado, carrega os dados
+															if (form.clienteId) {
+																await loadClienteData(form.clienteId, s.id);
+															}
 														}}
 														className="px-3 py-2 hover:bg-blue-100 cursor-pointer text-sm text-black"
 													>
