@@ -1,4 +1,4 @@
-// cliente x sistema 2.0
+// cliente x sistema
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
@@ -86,7 +86,6 @@ function mapClienteFromApi(row: any): ClienteBase {
 		base?.nomeCliente ??
 		"";
 
-	// Pegar status do sistema 2 (se houver)
 	const sistemas = Array.isArray(base?.sistemas) ? base.sistemas : [];
 	const sistema2 = sistemas.find((s: any) => Number(s?.idSistema) === 2);
 
@@ -145,7 +144,7 @@ function isUnauthorized(e: any) {
 	return e?.status === 401;
 }
 
-/* ===== parse num seguro (evita valores absurdos tipo 57429800) ===== */
+/* ===== parse num seguro ===== */
 function toSafeInt(value: any, defaultValue = 0, limit = 100000): number {
 	if (value === null || value === undefined) return defaultValue;
 
@@ -158,14 +157,12 @@ function toSafeInt(value: any, defaultValue = 0, limit = 100000): number {
 	const s = String(value).trim();
 	if (!s) return defaultValue;
 
-	// tenta número direto (aceita "10", "10.5", "10,5")
 	const direct = Number(s.replace(",", "."));
 	if (Number.isFinite(direct)) {
 		const n = Math.trunc(direct);
 		return Math.abs(n) > limit ? defaultValue : n;
 	}
 
-	// fallback: só dígitos
 	const digits = s.replace(/[^\d-]/g, "");
 	if (!digits) return defaultValue;
 
@@ -177,9 +174,15 @@ function toSafeInt(value: any, defaultValue = 0, limit = 100000): number {
 }
 
 function mapControleFromClienteSistema(row: any): ControleSistema {
+	const clienteId = toSafeInt(
+		row?.idCliente ?? row?.clienteId ?? row?.cliente_id ?? row?.cliente?.id,
+		0,
+		1_000_000_000
+	);
+
 	return {
 		id: toSafeInt(row?.id, 0, 1_000_000_000),
-		clienteId: toSafeInt(row?.idCliente, 0, 1_000_000_000),
+		clienteId: clienteId,
 		idSistema: toSafeInt(row?.idSistema, 0, 1_000_000_000),
 		sistema: String(row?.nome ?? ""),
 		qtdLicenca: toSafeInt(row?.quantidadeLicenca, 0, 100000),
@@ -210,6 +213,8 @@ export default function ControleDeSistemaPage() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
+	const [registrosOrfaos, setRegistrosOrfaos] = useState(0);
+
 	/* ordenação */
 	type SortKey =
 		| keyof Pick<
@@ -228,15 +233,18 @@ export default function ControleDeSistemaPage() {
 	const [form, setForm] = useState<Partial<ControleSistema>>({});
 	const [saving, setSaving] = useState(false);
 
-	/* ✅ Estados para busca de cliente no modal */
+	/* Estados para busca de cliente no modal */
 	const [clienteSearch, setClienteSearch] = useState("");
 	const [showClienteDropdown, setShowClienteDropdown] = useState(false);
 
-	/* ✅ Estados para busca de sistema no modal */
+	/* Estados para busca de sistema no modal */
 	const [sistemaSearch, setSistemaSearch] = useState("");
 	const [showSistemaDropdown, setShowSistemaDropdown] = useState(false);
 
-	/* ✅ helper nome E código do cliente */
+	/* ✅ FIX: verifica se o sistema selecionado é MBLOCK */
+	const isMblock = String(form.sistema ?? "").toUpperCase().includes("MBLOCK");
+
+	/* helper nome E código do cliente */
 	const nomeCliente = (id: number) =>
 		clientes.find((c) => c.id === id)?.nome ?? "—";
 
@@ -268,16 +276,60 @@ export default function ControleDeSistemaPage() {
 			let clientesArr: ClienteBase[] = [];
 			let sistemasArr: Sistema[] = [];
 
-			// --- CLIENTES ---
+			// --- CLIENTES COM PAGINAÇÃO ---
 			try {
-				const clientesResp = await backendFetch("/clientes?limit=1000&offset=0", {
-					method: "GET",
-				});
+				const pageSize = 200;
+				let offset = 0;
+				let allClientes: any[] = [];
+				let hasMore = true;
 
-				const listaClientes = normalizeList(clientesResp);
+				console.log("🔄 Iniciando busca paginada de clientes...");
+
+				while (hasMore) {
+					const params = new URLSearchParams();
+					params.set("limit", String(pageSize));
+					params.set("offset", String(offset));
+
+					console.log(`📡 Buscando clientes: offset=${offset}, limit=${pageSize}`);
+
+					const data = await backendFetch(`/clientes?${params.toString()}`, {
+						method: "GET",
+					});
+
+					let lista: any[] = [];
+					if (Array.isArray(data)) lista = data;
+					else if (data && typeof data === "object") {
+						const d: any = data;
+						if (Array.isArray(d.data)) lista = d.data;
+						else if (Array.isArray(d.items)) lista = d.items;
+						else if (Array.isArray(d.result)) lista = d.result;
+						else if (Array.isArray(d.value)) lista = d.value;
+						else if (Array.isArray(d.$values)) lista = d.$values;
+					}
+
+					if (!Array.isArray(lista) || lista.length === 0) {
+						hasMore = false;
+						console.log(`✅ Fim da paginação.`);
+						break;
+					}
+
+					console.log(`📦 Recebidos ${lista.length} clientes nesta página`);
+
+					allClientes = [...allClientes, ...lista];
+
+					if (lista.length < pageSize) {
+						hasMore = false;
+						console.log(`✅ Última página alcançada`);
+					} else {
+						offset += pageSize;
+					}
+				}
+
+				console.log("📥 TOTAL de clientes recebidos do backend:", allClientes.length);
+
 				const mapCli = new Map<number, ClienteBase>();
 
-				for (const item of listaClientes) {
+				for (const item of allClientes) {
 					const c = mapClienteFromApi(item);
 					if (c.id && c.nome && !mapCli.has(c.id)) mapCli.set(c.id, c);
 				}
@@ -286,13 +338,21 @@ export default function ControleDeSistemaPage() {
 					a.nome.localeCompare(b.nome, "pt-BR")
 				);
 
-				setClientes(clientesArr);
+				console.log("🗺️ Total de clientes mapeados:", clientesArr.length);
 
-				for (const c of clientesArr) {
+				const filtered = clientesArr.filter((c) => {
+					return c.idStatus !== 3;
+				});
+
+				console.log("✅ Total após filtrar cancelados:", filtered.length);
+
+				setClientes(filtered);
+
+				for (const c of filtered) {
 					clienteStatusMap.set(c.id, { idStatus: c.idStatus, status: c.status });
 				}
 
-				console.log(`✅ ${clientesArr.length} clientes carregados`);
+				console.log(`✅ ${filtered.length} clientes disponíveis`);
 			} catch (e: any) {
 				console.error("❌ Erro /clientes:", e);
 				if (isUnauthorized(e) && typeof window !== "undefined") {
@@ -337,6 +397,8 @@ export default function ControleDeSistemaPage() {
 				const sistemaMap = new Map<number, string>();
 				for (const s of sistemasArr) sistemaMap.set(s.id, s.nome);
 
+				let contadorOrfaos = 0;
+
 				const mappedRows = csLista.map((row: any) => {
 					const base = mapControleFromClienteSistema(row);
 					const cliStatus = clienteStatusMap.get(base.clienteId);
@@ -345,14 +407,13 @@ export default function ControleDeSistemaPage() {
 						String(cliStatus?.status ?? "").trim() ===
 						"Irregular (Contrato Cancelado)";
 
-					// ✅ NORMALIZA idStatus (fonte de verdade) e status (texto) SEMPRE coerente
 					const idStatusNormalized = clienteCancelado
 						? 3
 						: Number(base.idStatus) > 0
-							? Number(base.idStatus)
-							: Number(cliStatus?.idStatus) > 0
-								? Number(cliStatus?.idStatus)
-								: statusIdFromLabel(base.status);
+						? Number(base.idStatus)
+						: Number(cliStatus?.idStatus) > 0
+						? Number(cliStatus?.idStatus)
+						: statusIdFromLabel(base.status);
 
 					const statusNormalized = statusLabelFromId(idStatusNormalized);
 
@@ -367,10 +428,21 @@ export default function ControleDeSistemaPage() {
 						idStatus: idStatusNormalized,
 						status: statusNormalized,
 					};
+				}).filter((r) => {
+					const clienteExiste = clienteStatusMap.has(r.clienteId);
+					const clienteCancelado = clienteStatusMap.get(r.clienteId)?.idStatus === 3;
+
+					if (!clienteExiste) {
+						contadorOrfaos++;
+						console.warn(`⚠️ Cliente ID ${r.clienteId} não encontrado para registro ${r.id}`);
+					}
+
+					return clienteExiste && !clienteCancelado;
 				});
 
 				setRows(mappedRows);
-				console.log(`✅ ${mappedRows.length} registros carregados`);
+				setRegistrosOrfaos(contadorOrfaos);
+				console.log(`✅ ${mappedRows.length} registros válidos carregados`);
 			} catch (e: any) {
 				console.error("❌ Erro /clientesistema:", e);
 				if (isUnauthorized(e) && typeof window !== "undefined") {
@@ -407,10 +479,9 @@ export default function ControleDeSistemaPage() {
 		} else setSortDir("asc");
 	}
 
-	/* ✅ filtragem + ordenação - INCLUINDO CÓDIGO */
+	/* filtragem + ordenação */
 	const filtered = useMemo<ControleSistema[]>(() => {
 		const q = query.toLowerCase();
-
 		let data = rows.filter((r) =>
 			[
 				String(codigoCliente(r.clienteId)),
@@ -427,7 +498,6 @@ export default function ControleDeSistemaPage() {
 
 		if (sortKey && sortDir) {
 			data = [...data].sort((a, b) => {
-				// ✅ ADICIONADO - ordenação por código
 				if (sortKey === "codigo") {
 					const na = codigoCliente(a.clienteId);
 					const nb = codigoCliente(b.clienteId);
@@ -435,7 +505,6 @@ export default function ControleDeSistemaPage() {
 					return sortDir === "asc" ? cmp : -cmp;
 				}
 
-				// cliente
 				if (sortKey === "cliente") {
 					const va = nomeCliente(a.clienteId).toLowerCase();
 					const vb = nomeCliente(b.clienteId).toLowerCase();
@@ -444,7 +513,6 @@ export default function ControleDeSistemaPage() {
 					return 0;
 				}
 
-				// numéricos
 				if (sortKey === "qtdLicenca" || sortKey === "qtdDiaLiberacao") {
 					const na = Number(a[sortKey] ?? 0);
 					const nb = Number(b[sortKey] ?? 0);
@@ -452,7 +520,6 @@ export default function ControleDeSistemaPage() {
 					return sortDir === "asc" ? cmp : -cmp;
 				}
 
-				// texto
 				const va = String(a[sortKey] ?? "").toLowerCase();
 				const vb = String(b[sortKey] ?? "").toLowerCase();
 				if (va < vb) return sortDir === "asc" ? -1 : 1;
@@ -475,7 +542,7 @@ export default function ControleDeSistemaPage() {
 		setPage((p) => Math.min(p, totalPages));
 	}, [totalPages]);
 
-	/* ✅ Filtrar clientes com base na busca */
+	/* Filtrar clientes com base na busca */
 	const filteredClientes = useMemo(() => {
 		if (!clienteSearch.trim()) return clientes;
 		const search = clienteSearch.toLowerCase();
@@ -486,7 +553,7 @@ export default function ControleDeSistemaPage() {
 		);
 	}, [clientes, clienteSearch]);
 
-	/* ✅ Filtrar sistemas com base na busca */
+	/* Filtrar sistemas com base na busca */
 	const filteredSistemas = useMemo(() => {
 		if (!sistemaSearch.trim()) return sistemas;
 		const search = sistemaSearch.toLowerCase();
@@ -534,36 +601,14 @@ export default function ControleDeSistemaPage() {
 			status: statusLabelFromId(idStatusInicial),
 		});
 
-		// ✅ Pre-preenche o nome do cliente
 		const cliente = clientes.find((c) => c.id === r.clienteId);
 		if (cliente) {
 			setClienteSearch(`${cliente.codigo} - ${cliente.nome}`);
 		}
 		setShowClienteDropdown(false);
 
-		// ✅ Pre-preenche o nome do sistema
 		setSistemaSearch(r.sistema);
 		setShowSistemaDropdown(false);
-	}
-
-	async function handleDelete(id: number) {
-		const alvo = rows.find((r) => r.id === id);
-
-		if (
-			!window.confirm(
-				`Excluir registro do cliente "${nomeCliente(alvo?.clienteId ?? 0)}"?`
-			)
-		)
-			return;
-
-		try {
-			await backendFetch(`/clientesistema/${id}`, { method: "DELETE" });
-			setRows((prev) => prev.filter((r) => r.id !== id));
-			console.log(`✅ Registro ${id} deletado com sucesso`);
-		} catch (e: any) {
-			console.error("❌ Erro ao deletar:", e);
-			alert(`Erro ao deletar o registro:\n${e?.message || "Erro desconhecido"}`);
-		}
 	}
 
 	function handleCancel() {
@@ -610,8 +655,9 @@ export default function ControleDeSistemaPage() {
 				quantidadeBancoDados: Number(form.qtdBanco ?? 0),
 				quantidadeCnpj: Number(form.qtdCnpj ?? 0),
 
-				ipMblock: form.ipMblock || null,
-				portaMblock: form.portaMblock || null,
+				// ✅ FIX: só envia ipMblock/portaMblock se for MBLOCK
+				ipMblock: isMblock ? (form.ipMblock || null) : null,
+				portaMblock: isMblock ? (form.portaMblock || null) : null,
 				observacaoStatus: form.observacao || null,
 
 				idStatus: idStatusFinal,
@@ -664,7 +710,7 @@ export default function ControleDeSistemaPage() {
 		);
 	}
 
-	/* ✅ LISTA MOBILE - COM CÓDIGO */
+	/* LISTA MOBILE */
 	const MobileList = () => (
 		<ul className="sm:hidden space-y-3">
 			{pageData.map((r, idx) => (
@@ -689,15 +735,8 @@ export default function ControleDeSistemaPage() {
 							>
 								✎
 							</button>
-							<button
-								onClick={() => handleDelete(r.id)}
-								className="w-7 h-7 rounded-xl bg-red-400 text-white hover:bg-red-600 transition-transform transform hover:scale-110"
-							>
-								✖
-							</button>
 						</div>
 					</div>
-
 					<div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-gray-700">
 						<div>
 							<span className="text-gray-500">Licenças:</span> {r.qtdLicenca}
@@ -786,15 +825,21 @@ export default function ControleDeSistemaPage() {
 							</div>
 						</div>
 
+						{registrosOrfaos > 0 && (
+							<div className="mb-4 rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-yellow-800 text-sm">
+								⚠️ {registrosOrfaos} registro(s) de cliente(s) que não existem mais foram ocultados.
+							</div>
+						)}
+
 						<MobileList />
 
-						{/* ✅ TABELA DESKTOP - COLUNA CÓDIGO ADICIONADA */}
+						{/* TABELA DESKTOP */}
 						<div className="hidden sm:block rounded-xl bg-white shadow overflow-hidden">
 							<div className="w-full overflow-x-auto">
 								<table className="min-w-full border-separate border-spacing-0 text-sm">
 									<thead>
 										<tr className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-											<th className="px-3 py-3 w-28 text-left whitespace-nowrap">
+											<th className="px-3 py-3 w-20 text-left whitespace-nowrap">
 												Ações
 											</th>
 											<th
@@ -876,15 +921,9 @@ export default function ControleDeSistemaPage() {
 													<div className="flex text-left gap-2">
 														<button
 															onClick={() => handleEdit(r.id)}
-															className="w-7 h-7 rounded-xl bg-yellow-400 text-white hover:bg-yellow-500 transition-transform transform hover:scale-110"
+															className="w-7 h-7 rounded-xl align-itens bg-yellow-400 text-white hover:bg-yellow-500 transition-transform transform hover:scale-110"
 														>
 															✎
-														</button>
-														<button
-															onClick={() => handleDelete(r.id)}
-															className="w-7 h-7 rounded-xl bg-red-400 text-white hover:bg-red-600 transition-transform transform hover:scale-110"
-														>
-															✖
 														</button>
 													</div>
 												</td>
@@ -981,7 +1020,7 @@ export default function ControleDeSistemaPage() {
 				</div>
 			</div>
 
-			{/* ✅ POPUP - CAMPO CLIENTE LIBERADO, MANTÉM DADOS AO TROCAR */}
+			{/* POPUP */}
 			{editingId !== null && (
 				<div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
 					<div className="absolute inset-0 bg-black/50" onClick={handleCancel} />
@@ -994,7 +1033,8 @@ export default function ControleDeSistemaPage() {
 
 							<div className="p-6">
 								<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-									{/* ✅ INPUT DE BUSCA DE CLIENTE - LIBERADO, MANTÉM DADOS */}
+
+									{/* CLIENTE */}
 									<label className="text-sm md:col-span-2 relative">
 										<span className="block mb-1 text-black">Cliente *</span>
 										<input
@@ -1006,17 +1046,20 @@ export default function ControleDeSistemaPage() {
 												setShowClienteDropdown(true);
 											}}
 											onFocus={() => setShowClienteDropdown(true)}
+											// ✅ FIX: fecha dropdown ao sair do campo
+											onBlur={() =>
+												setTimeout(() => setShowClienteDropdown(false), 150)
+											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 
-										{/* Dropdown de resultados */}
 										{showClienteDropdown && filteredClientes.length > 0 && (
 											<ul className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto bg-white border border-gray-300 rounded shadow-lg">
 												{filteredClientes.slice(0, 50).map((c) => (
 													<li
 														key={c.id}
+														onMouseDown={(e) => e.preventDefault()}
 														onClick={() => {
-															// ✅ APENAS TROCA O CLIENTE, MANTÉM TODOS OS OUTROS DADOS
 															setForm((prev) => ({ ...prev, clienteId: c.id }));
 															setClienteSearch(`${c.codigo} - ${c.nome}`);
 															setShowClienteDropdown(false);
@@ -1030,7 +1073,7 @@ export default function ControleDeSistemaPage() {
 										)}
 									</label>
 
-									{/* ✅ INPUT DE BUSCA DE SISTEMA COM DROPDOWN AUTOCOMPLETE */}
+									{/* SISTEMA */}
 									<label className="text-sm md:col-span-2 relative">
 										<span className="block mb-1 text-black">Sistema *</span>
 										<input
@@ -1042,15 +1085,19 @@ export default function ControleDeSistemaPage() {
 												setShowSistemaDropdown(true);
 											}}
 											onFocus={() => setShowSistemaDropdown(true)}
+											// ✅ FIX: fecha dropdown ao sair do campo
+											onBlur={() =>
+												setTimeout(() => setShowSistemaDropdown(false), 150)
+											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 
-										{/* Dropdown de resultados */}
 										{showSistemaDropdown && filteredSistemas.length > 0 && (
 											<ul className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto bg-white border border-gray-300 rounded shadow-lg">
 												{filteredSistemas.map((s) => (
 													<li
 														key={s.id}
+														onMouseDown={(e) => e.preventDefault()}
 														onClick={() => {
 															setForm((prev) => ({ ...prev, sistema: s.nome }));
 															setSistemaSearch(s.nome);
@@ -1065,6 +1112,7 @@ export default function ControleDeSistemaPage() {
 										)}
 									</label>
 
+									{/* QTD LICENÇA */}
 									<label className="text-sm">
 										<span className="block mb-1 text-black">Qtd Licença</span>
 										<input
@@ -1080,6 +1128,7 @@ export default function ControleDeSistemaPage() {
 										/>
 									</label>
 
+									{/* QTD DIA LIBERAÇÃO */}
 									<label className="text-sm">
 										<span className="block mb-1 text-black">Qtd Dia Liberação</span>
 										<input
@@ -1095,6 +1144,7 @@ export default function ControleDeSistemaPage() {
 										/>
 									</label>
 
+									{/* QTD BANCO DE DADOS */}
 									<label className="text-sm">
 										<span className="block mb-1 text-black">Qtd Banco de Dados</span>
 										<input
@@ -1110,6 +1160,7 @@ export default function ControleDeSistemaPage() {
 										/>
 									</label>
 
+									{/* QTD CNPJ */}
 									<label className="text-sm">
 										<span className="block mb-1 text-black">Qtd CNPJ</span>
 										<input
@@ -1125,36 +1176,43 @@ export default function ControleDeSistemaPage() {
 										/>
 									</label>
 
-									<label className="text-sm">
-										<span className="block mb-1 text-black">IP Mblock</span>
-										<input
-											type="text"
-											value={form.ipMblock ?? ""}
-											onChange={(e) =>
-												setForm((prev) => ({
-													...prev,
-													ipMblock: e.target.value,
-												}))
-											}
-											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-										/>
-									</label>
+									{/* ✅ FIX: IP MBLOCK — só aparece se sistema for MBLOCK */}
+									{isMblock && (
+										<label className="text-sm">
+											<span className="block mb-1 text-black">IP Mblock</span>
+											<input
+												type="text"
+												value={form.ipMblock ?? ""}
+												onChange={(e) =>
+													setForm((prev) => ({
+														...prev,
+														ipMblock: e.target.value,
+													}))
+												}
+												className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											/>
+										</label>
+									)}
 
-									<label className="text-sm">
-										<span className="block mb-1 text-black">Porta Mblock</span>
-										<input
-											type="text"
-											value={form.portaMblock ?? ""}
-											onChange={(e) =>
-												setForm((prev) => ({
-													...prev,
-													portaMblock: e.target.value,
-												}))
-											}
-											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
-										/>
-									</label>
+									{/* ✅ FIX: PORTA MBLOCK — só aparece se sistema for MBLOCK */}
+									{isMblock && (
+										<label className="text-sm">
+											<span className="block mb-1 text-black">Porta Mblock</span>
+											<input
+												type="text"
+												value={form.portaMblock ?? ""}
+												onChange={(e) =>
+													setForm((prev) => ({
+														...prev,
+														portaMblock: e.target.value,
+													}))
+												}
+												className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
+											/>
+										</label>
+									)}
 
+									{/* STATUS */}
 									<label className="text-sm md:col-span-2">
 										<span className="block mb-1 text-black">Status</span>
 										<div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -1180,6 +1238,7 @@ export default function ControleDeSistemaPage() {
 										</div>
 									</label>
 
+									{/* OBSERVAÇÃO */}
 									<label className="text-sm md:col-span-2">
 										<span className="block mb-1 text-black">Observação</span>
 										<textarea
