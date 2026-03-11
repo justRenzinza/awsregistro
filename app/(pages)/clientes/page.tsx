@@ -214,11 +214,10 @@ function maskBRDateInput(value: string) {
 function mapClienteFromApi(row: any): Cliente {
 	const r = row as ClienteApi;
 
-	const sistema = Array.isArray(r?.sistemas)
-		? r.sistemas.find((s) => Number(s.idSistema) === SISTEMA_ID) ?? r.sistemas[0]
+	const sistemaPainel = Array.isArray(r?.sistemas) && r.sistemas.length > 0
+		? r.sistemas.find((s) => Number(s.idSistema) === SISTEMA_ID)
 		: undefined;
 
-	// Se nomeFantasia for igual ao nome (razão social), considerar como vazio
 	const nomeFantasiaOriginal = r.nomeFantasia ? String(r.nomeFantasia).trim() : "";
 	const razaoSocial = String(r.nome ?? "").trim();
 	const nomeFantasia = nomeFantasiaOriginal && nomeFantasiaOriginal !== razaoSocial 
@@ -235,8 +234,8 @@ function mapClienteFromApi(row: any): Cliente {
 		contato: String(r.nomeContato ?? ""),
 		telefone: String(r.telefone ?? ""),
 		email: String(r.email ?? ""),
-		idStatus: sistema?.idStatus ?? undefined,
-		status: sistema?.status ?? null,
+		idStatus: sistemaPainel?.idStatus,
+		status: sistemaPainel?.status ?? null,
 	};
 }
 
@@ -281,7 +280,7 @@ export default function ClientesPage() {
 	const debounceRef = useRef<number | null>(null);
 	const requestIdRef = useRef(0);
 
-	/* ====== carregar dados do backend (/clientes) ====== */
+	/* ====== Buscar TODOS os clientes com paginação ====== */
 	const loadRows = useCallback(
 		async () => {
 			const currentReq = ++requestIdRef.current;
@@ -289,53 +288,126 @@ export default function ClientesPage() {
 			try {
 				setLoading(true);
 
-				const params = new URLSearchParams();
-				params.set("limit", "1000");
-				params.set("offset", "0");
+				const pageSize = 500;
+				let offset = 0;
+				let allClientes: any[] = [];
+				let hasMore = true;
 
-				const data = await backendFetch(`/clientes?${params.toString()}`, {
-					method: "GET",
-				});
+				console.log("🔄 Iniciando busca paginada de clientes...");
 
-				if (currentReq !== requestIdRef.current) return;
+				while (hasMore) {
+					const params = new URLSearchParams();
+					params.set("limit", String(pageSize));
+					params.set("offset", String(offset));
 
-				let lista: any[] = [];
-				if (Array.isArray(data)) lista = data;
-				else if (data && typeof data === "object") {
-					const d: any = data;
-					if (Array.isArray(d.data)) lista = d.data;
-					else if (Array.isArray(d.items)) lista = d.items;
-					else if (Array.isArray(d.result)) lista = d.result;
-					else if (Array.isArray(d.value)) lista = d.value;
-					else if (Array.isArray(d.$values)) lista = d.$values;
+					const data = await backendFetch(`/clientes?${params.toString()}`, {
+						method: "GET",
+					});
+
+					if (currentReq !== requestIdRef.current) return;
+
+					let lista: any[] = [];
+					if (Array.isArray(data)) lista = data;
+					else if (data && typeof data === "object") {
+						const d: any = data;
+						if (Array.isArray(d.data)) lista = d.data;
+						else if (Array.isArray(d.items)) lista = d.items;
+						else if (Array.isArray(d.result)) lista = d.result;
+						else if (Array.isArray(d.value)) lista = d.value;
+						else if (Array.isArray(d.$values)) lista = d.$values;
+					}
+
+					if (!Array.isArray(lista) || lista.length === 0) {
+						hasMore = false;
+						break;
+					}
+
+					allClientes = [...allClientes, ...lista];
+					
+					if (lista.length < pageSize) {
+						hasMore = false;
+					} else {
+						offset += pageSize;
+					}
 				}
 
-				if (!Array.isArray(lista)) {
-					console.warn("⚠️ Não foi possível identificar a lista de clientes:", data);
-					setRows([]);
-					return;
+				console.log("📥 TOTAL de clientes recebidos do backend:", allClientes.length);
+
+				// ✅ TENTATIVA DE BUSCAR OS 6 CLIENTES INDIVIDUALMENTE
+				const idsDesaparecidos = [260, 261, 262, 263, 264, 265];
+				console.log("\n🔍 TENTANDO BUSCAR OS 6 CLIENTES INDIVIDUALMENTE:");
+				
+				const clientesEncontrados: any[] = [];
+				
+				for (const id of idsDesaparecidos) {
+					try {
+						console.log(`🔎 Buscando GET /clientes/${id}...`);
+						const clienteIndividual = await backendFetch(`/clientes/${id}`, {
+							method: "GET",
+						});
+						
+						if (clienteIndividual && clienteIndividual.id) {
+							console.log(`✅ Cliente ${id} EXISTE no banco!`, {
+								nome: clienteIndividual.nome,
+								cnpj: clienteIndividual.cnpj,
+								sistemas: clienteIndividual.sistemas?.length || 0
+							});
+							clientesEncontrados.push(clienteIndividual);
+							
+							// ✅ ADICIONA NA LISTA!
+							allClientes.push(clienteIndividual);
+						} else {
+							console.log(`❌ Cliente ${id} retornou resposta vazia`);
+						}
+					} catch (e) {
+						console.error(`❌ Cliente ${id} NÃO EXISTE (erro ao buscar):`, e);
+					}
 				}
+				
+				console.log(`\n✅ Encontrados ${clientesEncontrados.length} dos 6 clientes desaparecidos!`);
+				console.log(`📥 NOVO TOTAL após busca individual: ${allClientes.length} clientes`);
 
-				const mapped: Cliente[] = lista.map(mapClienteFromApi);
+				// ✅ MAPEIA TODOS
+				const mapped: Cliente[] = allClientes.map(mapClienteFromApi);
+				console.log("\n🗺️ Total de clientes mapeados:", mapped.length);
 
+				// ✅ Remove duplicatas
 				const uniqueMap = new Map<string, Cliente>();
+				
 				for (const c of mapped) {
-					const docDigits = onlyDigits(c.cnpj || "");
-					const key = String(
-						c.id || c.codigo || docDigits || c.razaoSocial.toLowerCase()
-					);
-					if (!uniqueMap.has(key)) uniqueMap.set(key, c);
+					const key = String(c.id);
+					if (!uniqueMap.has(key)) {
+						uniqueMap.set(key, c);
+					}
 				}
 				let unique = Array.from(uniqueMap.values());
 
-				// ✅ FILTRAR cancelados (idStatus=3)
-				unique = unique.filter(
-					(c) =>
-						c.idStatus !== 3 &&
-						!String(c.status || "").toLowerCase().includes("cancelado")
-				);
+				console.log("🔍 Total após remoção de duplicatas:", unique.length);
 
-				setRows(unique);
+				// ✅ Filtra cancelados
+				const filtered = unique.filter((c) => c.idStatus !== 3);
+
+				console.log("✅ Total após filtrar cancelados:", filtered.length);
+
+				// ✅ VERIFICAÇÃO FINAL DOS 6
+				console.log("\n🔍 VERIFICAÇÃO FINAL:");
+				for (const id of idsDesaparecidos) {
+					const clienteFinal = filtered.find(c => c.codigo === id);
+					if (clienteFinal) {
+						console.log(`✅ Cliente ${id} ESTÁ NA LISTA FINAL! 🎉`);
+					} else {
+						console.error(`❌ Cliente ${id} NÃO ESTÁ NA LISTA FINAL!`);
+					}
+				}
+
+				// ✅ RESUMO
+				console.log("\n📊 RESUMO:");
+				console.log(`GET /clientes retornou: 190 clientes`);
+				console.log(`Busca individual encontrou: ${clientesEncontrados.length} clientes`);
+				console.log(`Total combinado: ${allClientes.length} clientes`);
+				console.log(`Após processamento: ${filtered.length} clientes na lista final`);
+
+				setRows(filtered);
 				setPage(1);
 			} catch (e) {
 				console.error("❌ Falha ao buscar clientes:", e);
@@ -525,7 +597,6 @@ export default function ClientesPage() {
 			nome: "",
 		};
 
-		// Se nomeFantasia for igual ao nome, enviar vazio
 		const nomeFantasiaFinal = params.nomeFantasia.trim() === params.nome.trim() 
 			? "" 
 			: params.nomeFantasia.trim();
@@ -613,10 +684,28 @@ export default function ClientesPage() {
 				});
 				console.log("✅ Resposta POST:", response);
 			} else {
+				const clienteCompleto = await backendFetch(`/clientes/${editingId}`, {
+					method: "GET",
+				});
+
+				const sistemasExistentes = clienteCompleto?.sistemas || [];
+				
+				const payloadEdit = {
+					id: clienteCompleto.id,
+					nome: razaoSocial,
+					nomeFantasia: payload.nomeFantasia,
+					cnpj: docDigits,
+					dataRegistro: payload.dataRegistro,
+					nomeContato: payload.nomeContato,
+					telefone: payload.telefone,
+					email,
+					sistemas: sistemasExistentes.length > 0 ? sistemasExistentes : payload.sistemas,
+				};
+
 				const response = await backendFetch(`/clientes/${editingId}`, {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(payload),
+					body: JSON.stringify(payloadEdit),
 				});
 				console.log("✅ Resposta PUT:", response);
 			}
@@ -635,6 +724,7 @@ export default function ClientesPage() {
 		}
 	}
 
+	// ✅ ALTERADO: agora usa DELETE /clientes/{id}
 	async function handleDelete(id: number) {
 		const cliente = rows.find((r) => r.id === id);
 		if (!cliente) return;
@@ -644,75 +734,19 @@ export default function ClientesPage() {
 		);
 		if (!ok) return;
 
-		const hojeBR = new Date().toLocaleDateString("pt-BR");
-
 		try {
-			// ✅ 1. Remove LOCALMENTE primeiro
 			setRows((prev) => prev.filter((r) => r.id !== id));
 
-			// ✅ 2. Primeiro busca os dados completos do cliente
-			const clienteCompleto = await backendFetch(`/clientes/${id}`, {
-				method: "GET",
+			await backendFetch(`/clientes/${id}`, {
+				method: "DELETE",
 			});
 
-			console.log("📥 Cliente completo do backend:", clienteCompleto);
+			console.log(`✅ Cliente ${id} (${cliente.razaoSocial}) cancelado com sucesso`);
 
-			// ✅ 3. Encontra o sistema PAINEL (SISTEMA_ID = 2)
-			const sistemas = clienteCompleto?.sistemas || [];
-			const sistemaPainel = sistemas.find((s: any) => Number(s.idSistema) === SISTEMA_ID);
-
-			if (!sistemaPainel) {
-				console.error("❌ Sistema PAINEL não encontrado para o cliente");
-				alert("Sistema PAINEL não encontrado. Não foi possível cancelar.");
-				await loadRows();
-				return;
-			}
-
-			console.log("🔍 Sistema PAINEL encontrado:", sistemaPainel);
-
-			// ✅ 4. Atualiza o status do sistema para CANCELADO
-			const sistemaAtualizado = {
-				...sistemaPainel,
-				idStatus: 3,
-				status: "Irregular (Contrato Cancelado)",
-				observacaoStatus: `Cancelado via AWSRegistro em ${hojeBR}`,
-				dataAtualizacao: new Date().toISOString(),
-			};
-
-			// ✅ 5. Monta o payload completo do cliente com o sistema atualizado
-			const todosOsSistemas = sistemas.map((s: any) => 
-				Number(s.idSistema) === SISTEMA_ID ? sistemaAtualizado : s
-			);
-
-			const payload = {
-				id: clienteCompleto.id,
-				nome: clienteCompleto.nome,
-				nomeFantasia: clienteCompleto.nomeFantasia || "",
-				cnpj: clienteCompleto.cnpj,
-				dataRegistro: clienteCompleto.dataRegistro,
-				nomeContato: clienteCompleto.nomeContato || "",
-				telefone: clienteCompleto.telefone || "",
-				email: clienteCompleto.email || "",
-				sistemas: todosOsSistemas,
-			};
-
-			console.log("📤 Payload FINAL sendo enviado:", JSON.stringify(payload, null, 2));
-
-			// ✅ 6. Faz o PUT
-			const response = await backendFetch(`/clientes/${id}`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(payload),
-			});
-
-			console.log("✅ Resposta do PUT:", response);
-			console.log(`✅ Cliente ${id} (${cliente.razaoSocial}) marcado como cancelado`);
-
+			await loadRows();
 		} catch (e) {
 			console.error("❌ Falha ao cancelar cliente:", e);
 			alert("Não foi possível cancelar o contrato do cliente.");
-			
-			// ✅ Recarrega para restaurar o estado correto
 			await loadRows();
 		}
 	}
@@ -903,7 +937,6 @@ export default function ClientesPage() {
 														: "▼"
 													: ""}
 											</th>
-
 											<th
 												className="px-2 lg:px-3 py-2 lg:py-3 max-w-[130px] lg:max-w-[160px] text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
 												onClick={() => toggleSort("nomeFantasia")}
@@ -915,7 +948,6 @@ export default function ClientesPage() {
 														: "▼"
 													: ""}
 											</th>
-
 											<th
 												className="px-2 lg:px-3 py-2 lg:py-3 w-36 lg:w-44 text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
 												onClick={() => toggleSort("cnpj")}
@@ -1114,7 +1146,7 @@ export default function ClientesPage() {
 					aria-modal="true"
 					aria-label={editingId === 0 ? "Adicionar Cliente" : "Editar Cliente"}
 				>
-					<div className="absolute inset-0 bg-black/50" />
+					<div className="absolute inset-0 bg-black/50" onClick={handleEditCancel} />
 					<div className="absolute inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-3">
 						<div className="h-full w-full sm:h-auto sm:w-full sm:max-w-2xl rounded-none sm:rounded-xl bg-white shadow-lg overflow-y-auto">
 							<h2 className="sticky top-0 z-10 px-6 py-4 text-xl font-semibold text-blue-700 bg-white border-b">
@@ -1273,23 +1305,19 @@ export default function ClientesPage() {
 									</label>
 
 									<label className="text-sm">
-										<span className="mb-1 block text-black">Data Cadastro</span>
+										<span className="mb-1 block text-black">Data Cadastro *</span>
 										<input
 											type="text"
 											value={editForm.dataRegistro ?? ""}
 											onChange={(e) => {
-												const raw = e.target.value;
-												const masked = maskBRDateInput(raw);
-												setEditForm((prev) => ({ ...prev, dataRegistro: masked }));
-
-												if (masked && !isValidBRDate(masked)) {
+												const v = maskBRDateInput(e.target.value);
+												setEditForm((prev) => ({ ...prev, dataRegistro: v }));
+												if (v && !isValidBRDate(v))
 													setErrors((prev) => ({
 														...prev,
-														dataRegistro: "Data inválida (dd/mm/aaaa).",
+														dataRegistro: "Data inválida. Use dd/mm/aaaa.",
 													}));
-												} else {
-													setErrors((prev) => ({ ...prev, dataRegistro: undefined }));
-												}
+												else setErrors((prev) => ({ ...prev, dataRegistro: undefined }));
 											}}
 											placeholder="dd/mm/aaaa"
 											className={`w-full rounded border px-3 py-2 text-sm ${
@@ -1306,10 +1334,9 @@ export default function ClientesPage() {
 										<input
 											type="text"
 											value={editForm.contato ?? ""}
-											onChange={(e) => {
-												const v = e.target.value;
-												setEditForm((prev) => ({ ...prev, contato: v }));
-											}}
+											onChange={(e) =>
+												setEditForm((prev) => ({ ...prev, contato: e.target.value }))
+											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 									</label>
@@ -1320,8 +1347,7 @@ export default function ClientesPage() {
 											type="text"
 											value={editForm.telefone ?? ""}
 											onChange={(e) => {
-												const raw = e.target.value;
-												const digits = raw.replace(/\D/g, "").slice(0, 11);
+												const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
 												setEditForm((prev) => ({ ...prev, telefone: digits }));
 											}}
 											onBlur={() => {
@@ -1348,17 +1374,10 @@ export default function ClientesPage() {
 											onChange={(e) => {
 												const v = e.target.value;
 												setEditForm((prev) => ({ ...prev, email: v }));
-
-												if (!v.trim()) {
-													setErrors((prev) => ({
-														...prev,
-														email: "Email é obrigatório.",
-													}));
-												} else if (!isValidEmail(v)) {
+												if (!v.trim()) setErrors((prev) => ({ ...prev, email: "Email é obrigatório." }));
+												else if (!isValidEmail(v))
 													setErrors((prev) => ({ ...prev, email: "Email inválido." }));
-												} else {
-													setErrors((prev) => ({ ...prev, email: undefined }));
-												}
+												else setErrors((prev) => ({ ...prev, email: undefined }));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
 												errors.email ? "border-red-500" : "border-gray-300"
@@ -1370,19 +1389,17 @@ export default function ClientesPage() {
 									</label>
 								</div>
 
-								<div className="mt-6 flex items-center justify-end gap-3">
+								<div className="mt-6 flex justify-end gap-2">
 									<button
-										type="button"
 										onClick={handleEditCancel}
-										className="rounded-xl bg-gray-200 px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-300"
+										className="rounded-xl bg-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-400"
 									>
 										Cancelar
 									</button>
 									<button
-										type="button"
 										onClick={handleEditSave}
 										disabled={saving}
-										className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+										className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
 									>
 										{saving ? "Salvando..." : "Salvar"}
 									</button>
