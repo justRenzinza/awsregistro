@@ -1,6 +1,6 @@
-// cadastro de clientes
+// cadastro de clientes 
 "use client";
-
+// debug
 import { useMemo, useState, useRef, useCallback } from "react";
 import { toCSV, downloadCSV } from "../../helpers/export";
 import Sidebar from "@/app/components/Sidebar";
