@@ -263,36 +263,19 @@ export default function ControleDeSistemaPage() {
 
 			try {
 				const LIMIT = 200;
-				let offset = 0;
+				const data = await backendFetch(`/clientes?limit=${LIMIT}&offset=0`, {
+					method: "GET",
+				});
+
 				let allClientes: any[] = [];
-				let hasMore = true;
-
-				while (hasMore) {
-					const data = await backendFetch(
-						`/clientes?limit=${LIMIT}&offset=${offset}`,
-						{ method: "GET" }
-					);
-
-					let lista: any[] = [];
-					if (Array.isArray(data)) lista = data;
-					else if (data && typeof data === "object") {
-						const d: any = data;
-						if (Array.isArray(d.data)) lista = d.data;
-						else if (Array.isArray(d.items)) lista = d.items;
-						else if (Array.isArray(d.result)) lista = d.result;
-						else if (Array.isArray(d.value)) lista = d.value;
-						else if (Array.isArray(d.$values)) lista = d.$values;
-					}
-
-					if (!lista.length) {
-						hasMore = false;
-						break;
-					}
-
-					allClientes = [...allClientes, ...lista];
-
-					if (lista.length < LIMIT) hasMore = false;
-					else offset += LIMIT;
+				if (Array.isArray(data)) allClientes = data;
+				else if (data && typeof data === "object") {
+					const d: any = data;
+					if (Array.isArray(d.data)) allClientes = d.data;
+					else if (Array.isArray(d.items)) allClientes = d.items;
+					else if (Array.isArray(d.result)) allClientes = d.result;
+					else if (Array.isArray(d.value)) allClientes = d.value;
+					else if (Array.isArray(d.$values)) allClientes = d.$values;
 				}
 
 				const mapCli = new Map<number, ClienteBase>();
@@ -555,9 +538,7 @@ export default function ControleDeSistemaPage() {
 		});
 
 		const cliente = clientes.find((c) => c.id === r.clienteId);
-		if (cliente) {
-			setClienteSearch(`${cliente.codigo} - ${cliente.nome}`);
-		}
+		if (cliente) setClienteSearch(`${cliente.codigo} - ${cliente.nome}`);
 
 		const sistema = sistemas.find((s) => s.id === r.idSistema);
 		setSistemaSearch(sistema?.nome ?? r.sistema ?? "");
@@ -592,7 +573,8 @@ export default function ControleDeSistemaPage() {
 		const sistemaSelecionado = sistemas.find(
 			(s) =>
 				s.id === Number(form.idSistema) ||
-				s.nome.trim().toLowerCase() === String(form.sistema ?? "").trim().toLowerCase()
+				s.nome.trim().toLowerCase() ===
+					String(form.sistema ?? "").trim().toLowerCase()
 		);
 
 		if (!sistemaSelecionado) {
@@ -666,16 +648,11 @@ export default function ControleDeSistemaPage() {
 	const MobileList = () => (
 		<ul className="sm:hidden space-y-3">
 			{pageData.map((r, idx) => (
-				<li
-					key={`${r.id}-${idx}`}
-					className="rounded-xl border bg-white p-4 shadow"
-				>
+				<li key={`${r.id}-${idx}`} className="rounded-xl border bg-white p-4 shadow">
 					<div className="flex items-start gap-3">
 						<div className="flex-1 min-w-0">
 							<div className="flex items-center gap-2 mb-1">
-								<span className="text-xs text-black">
-									{codigoCliente(r.clienteId)}
-								</span>
+								<span className="text-xs text-black">{codigoCliente(r.clienteId)}</span>
 								<div className="font-medium text-gray-900 break-words">
 									{nomeCliente(r.clienteId)}
 								</div>
@@ -697,8 +674,7 @@ export default function ControleDeSistemaPage() {
 							<span className="text-gray-500">Licenças:</span> {r.qtdLicenca}
 						</div>
 						<div>
-							<span className="text-gray-500">Dias Lib.:</span>{" "}
-							{r.qtdDiaLiberacao}
+							<span className="text-gray-500">Dias Lib.:</span> {r.qtdDiaLiberacao}
 						</div>
 						<div className="col-span-2">
 							<span className="text-gray-500">Status:</span> {statusUI(r)}
@@ -782,8 +758,7 @@ export default function ControleDeSistemaPage() {
 
 						{registrosOrfaos > 0 && (
 							<div className="mb-4 rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-yellow-800 text-sm">
-								⚠️ {registrosOrfaos} registro(s) de cliente(s) que não existem
-								mais foram ocultados.
+								⚠️ {registrosOrfaos} registro(s) de cliente(s) que não existem mais foram ocultados.
 							</div>
 						)}
 
@@ -794,84 +769,31 @@ export default function ControleDeSistemaPage() {
 								<table className="min-w-full border-separate border-spacing-0 text-sm">
 									<thead>
 										<tr className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-											<th className="px-3 py-3 w-20 text-left whitespace-nowrap">
-												Ações
+											<th className="px-3 py-3 w-20 text-left whitespace-nowrap">Ações</th>
+											<th className="px-3 py-3 cursor-pointer text-left whitespace-nowrap" onClick={() => toggleSort("codigo")}>
+												Código {sortKey === "codigo" ? (sortDir === "asc" ? "▲" : "▼") : ""}
 											</th>
-											<th
-												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
-												onClick={() => toggleSort("codigo")}
-											>
-												Código{" "}
-												{sortKey === "codigo"
-													? sortDir === "asc"
-														? "▲"
-														: "▼"
-													: ""}
+											<th className="px-3 py-3 cursor-pointer text-left whitespace-nowrap" onClick={() => toggleSort("cliente")}>
+												Cliente {sortKey === "cliente" ? (sortDir === "asc" ? "▲" : "▼") : ""}
 											</th>
-											<th
-												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
-												onClick={() => toggleSort("cliente")}
-											>
-												Cliente{" "}
-												{sortKey === "cliente"
-													? sortDir === "asc"
-														? "▲"
-														: "▼"
-													: ""}
+											<th className="px-3 py-3 cursor-pointer text-left whitespace-nowrap" onClick={() => toggleSort("sistema")}>
+												Sistema {sortKey === "sistema" ? (sortDir === "asc" ? "▲" : "▼") : ""}
 											</th>
-											<th
-												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
-												onClick={() => toggleSort("sistema")}
-											>
-												Sistema{" "}
-												{sortKey === "sistema"
-													? sortDir === "asc"
-														? "▲"
-														: "▼"
-													: ""}
+											<th className="px-3 py-3 cursor-pointer text-left whitespace-nowrap" onClick={() => toggleSort("qtdLicenca")}>
+												Qtd Licença {sortKey === "qtdLicenca" ? (sortDir === "asc" ? "▲" : "▼") : ""}
 											</th>
-											<th
-												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
-												onClick={() => toggleSort("qtdLicenca")}
-											>
-												Qtd Licença{" "}
-												{sortKey === "qtdLicenca"
-													? sortDir === "asc"
-														? "▲"
-														: "▼"
-													: ""}
+											<th className="px-3 py-3 cursor-pointer text-left whitespace-nowrap" onClick={() => toggleSort("qtdDiaLiberacao")}>
+												Qtd Dia Liberação {sortKey === "qtdDiaLiberacao" ? (sortDir === "asc" ? "▲" : "▼") : ""}
 											</th>
-											<th
-												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
-												onClick={() => toggleSort("qtdDiaLiberacao")}
-											>
-												Qtd Dia Liberação{" "}
-												{sortKey === "qtdDiaLiberacao"
-													? sortDir === "asc"
-														? "▲"
-														: "▼"
-													: ""}
-											</th>
-											<th
-												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
-												onClick={() => toggleSort("status")}
-											>
-												Status{" "}
-												{sortKey === "status"
-													? sortDir === "asc"
-														? "▲"
-														: "▼"
-													: ""}
+											<th className="px-3 py-3 cursor-pointer text-left whitespace-nowrap" onClick={() => toggleSort("status")}>
+												Status {sortKey === "status" ? (sortDir === "asc" ? "▲" : "▼") : ""}
 											</th>
 										</tr>
 									</thead>
 
 									<tbody className="text-gray-900">
 										{pageData.map((r, idx) => (
-											<tr
-												key={`${r.id}-${idx}`}
-												className={idx % 2 === 0 ? "bg-white" : "bg-gray-100"}
-											>
+											<tr key={`${r.id}-${idx}`} className={idx % 2 === 0 ? "bg-white" : "bg-gray-100"}>
 												<td className="px-3 py-3">
 													<div className="flex text-left gap-2">
 														<button
@@ -883,41 +805,20 @@ export default function ControleDeSistemaPage() {
 													</div>
 												</td>
 
-												<td className="px-3 py-3 text-left text-gray-900">
-													{codigoCliente(r.clienteId)}
-												</td>
-
-												<td
-													className="px-3 py-3 text-left truncate max-w-[18rem]"
-													title={nomeCliente(r.clienteId)}
-												>
+												<td className="px-3 py-3 text-left text-gray-900">{codigoCliente(r.clienteId)}</td>
+												<td className="px-3 py-3 text-left truncate max-w-[18rem]" title={nomeCliente(r.clienteId)}>
 													{nomeCliente(r.clienteId)}
 												</td>
-
-												<td className="px-3 py-3 text-left whitespace-nowrap">
-													{r.sistema}
-												</td>
-
-												<td className="px-3 py-3 text-left whitespace-nowrap">
-													{r.qtdLicenca}
-												</td>
-
-												<td className="px-3 py-3 text-left whitespace-nowrap">
-													{r.qtdDiaLiberacao}
-												</td>
-
-												<td className="px-3 py-3 text-left whitespace-nowrap">
-													{statusUI(r)}
-												</td>
+												<td className="px-3 py-3 text-left whitespace-nowrap">{r.sistema}</td>
+												<td className="px-3 py-3 text-left whitespace-nowrap">{r.qtdLicenca}</td>
+												<td className="px-3 py-3 text-left whitespace-nowrap">{r.qtdDiaLiberacao}</td>
+												<td className="px-3 py-3 text-left whitespace-nowrap">{statusUI(r)}</td>
 											</tr>
 										))}
 
 										{pageData.length === 0 && (
 											<tr>
-												<td
-													colSpan={7}
-													className="px-3 py-8 text-center text-gray-500"
-												>
+												<td colSpan={7} className="px-3 py-8 text-center text-gray-500">
 													Nenhum registro encontrado.
 												</td>
 											</tr>
@@ -999,9 +900,7 @@ export default function ControleDeSistemaPage() {
 												setShowClienteDropdown(true);
 											}}
 											onFocus={() => setShowClienteDropdown(true)}
-											onBlur={() =>
-												setTimeout(() => setShowClienteDropdown(false), 150)
-											}
+											onBlur={() => setTimeout(() => setShowClienteDropdown(false), 150)}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 
@@ -1018,8 +917,7 @@ export default function ControleDeSistemaPage() {
 														}}
 														className="px-3 py-2 hover:bg-blue-100 cursor-pointer text-sm text-black"
 													>
-														<span className="font-semibold">{c.codigo}</span> -{" "}
-														{c.nome}
+														<span className="font-semibold">{c.codigo}</span> - {c.nome}
 													</li>
 												))}
 											</ul>
@@ -1042,9 +940,7 @@ export default function ControleDeSistemaPage() {
 												setShowSistemaDropdown(true);
 											}}
 											onFocus={() => setShowSistemaDropdown(true)}
-											onBlur={() =>
-												setTimeout(() => setShowSistemaDropdown(false), 150)
-											}
+											onBlur={() => setTimeout(() => setShowSistemaDropdown(false), 150)}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
 
@@ -1088,9 +984,7 @@ export default function ControleDeSistemaPage() {
 									</label>
 
 									<label className="text-sm">
-										<span className="block mb-1 text-black">
-											Qtd Dia Liberação
-										</span>
+										<span className="block mb-1 text-black">Qtd Dia Liberação</span>
 										<input
 											type="number"
 											value={form.qtdDiaLiberacao ?? 0}
@@ -1105,9 +999,7 @@ export default function ControleDeSistemaPage() {
 									</label>
 
 									<label className="text-sm">
-										<span className="block mb-1 text-black">
-											Qtd Banco de Dados
-										</span>
+										<span className="block mb-1 text-black">Qtd Banco de Dados</span>
 										<input
 											type="number"
 											value={form.qtdBanco ?? 0}
@@ -1155,9 +1047,7 @@ export default function ControleDeSistemaPage() {
 
 									{isMblock && (
 										<label className="text-sm">
-											<span className="block mb-1 text-black">
-												Porta Mblock
-											</span>
+											<span className="block mb-1 text-black">Porta Mblock</span>
 											<input
 												type="text"
 												value={form.portaMblock ?? ""}
