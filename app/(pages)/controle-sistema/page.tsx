@@ -1,12 +1,10 @@
-// cliente x sistema
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { downloadCSV, toCSVControleSistema } from "../../helpers/export";
 import Sidebar from "@/app/components/Sidebar";
 import { backendFetch } from "@/lib/backend";
 
-/* ------------ tipos básicos ----------- */
 type ClienteBase = {
 	id: number;
 	codigo: number;
@@ -42,8 +40,6 @@ type ControleSistema = {
 	observacao?: string | null;
 };
 
-/* ===== helpers genéricos para parse de resposta ===== */
-
 function normalizeList(data: any): any[] {
 	if (!data) return [];
 	if (Array.isArray(data)) return data;
@@ -77,7 +73,7 @@ function mapClienteFromApi(row: any): ClienteBase {
 		base?.id ?? base?.idCliente ?? base?.codigo ?? row?.idCliente ?? 0
 	);
 
-	const codigo = Number(base?.id ?? base?.codigo ?? id);
+	const codigo = Number(base?.codigo ?? base?.id ?? id);
 
 	const nome =
 		base?.nome ??
@@ -95,7 +91,8 @@ function mapClienteFromApi(row: any): ClienteBase {
 		base?.id_status ??
 		(base?.status === "Irregular (Contrato Cancelado)" ? 3 : undefined);
 
-	const status = sistema2?.status ?? base?.status ?? base?.descricaoStatus ?? null;
+	const status =
+		sistema2?.status ?? base?.status ?? base?.descricaoStatus ?? null;
 
 	return { id, codigo, nome, idStatus, status };
 }
@@ -113,8 +110,6 @@ function mapSistemaFromApi(row: any): Sistema {
 
 	return { id, nome };
 }
-
-/* ===== helpers STATUS ===== */
 
 function statusLabelFromId(id: number): StatusContrato {
 	switch (id) {
@@ -144,7 +139,6 @@ function isUnauthorized(e: any) {
 	return e?.status === 401;
 }
 
-/* ===== parse num seguro ===== */
 function toSafeInt(value: any, defaultValue = 0, limit = 100000): number {
 	if (value === null || value === undefined) return defaultValue;
 
@@ -182,9 +176,9 @@ function mapControleFromClienteSistema(row: any): ControleSistema {
 
 	return {
 		id: toSafeInt(row?.id, 0, 1_000_000_000),
-		clienteId: clienteId,
+		clienteId,
 		idSistema: toSafeInt(row?.idSistema, 0, 1_000_000_000),
-		sistema: String(row?.nome ?? ""),
+		sistema: String(row?.nome ?? row?.sistema ?? ""),
 		qtdLicenca: toSafeInt(row?.quantidadeLicenca, 0, 100000),
 		qtdDiaLiberacao: toSafeInt(row?.quantidadeDiaLiberacao, 0, 100000),
 		status: row?.status ?? row?.descricaoStatus ?? "Regular",
@@ -201,7 +195,6 @@ function mapControleFromClienteSistema(row: any): ControleSistema {
 }
 
 export default function ControleDeSistemaPage() {
-	/* estados */
 	const [query, setQuery] = useState("");
 	const [page, setPage] = useState(1);
 	const [pageSize] = useState(10);
@@ -212,10 +205,8 @@ export default function ControleDeSistemaPage() {
 
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
-
 	const [registrosOrfaos, setRegistrosOrfaos] = useState(0);
 
-	/* ordenação */
 	type SortKey =
 		| keyof Pick<
 				ControleSistema,
@@ -225,26 +216,22 @@ export default function ControleDeSistemaPage() {
 		| "codigo";
 
 	type SortDir = "asc" | "desc" | null;
+
 	const [sortKey, setSortKey] = useState<SortKey | null>("cliente");
 	const [sortDir, setSortDir] = useState<SortDir | null>("asc");
 
-	/* popup */
 	const [editingId, setEditingId] = useState<number | null>(null);
 	const [form, setForm] = useState<Partial<ControleSistema>>({});
 	const [saving, setSaving] = useState(false);
 
-	/* Estados para busca de cliente no modal */
 	const [clienteSearch, setClienteSearch] = useState("");
 	const [showClienteDropdown, setShowClienteDropdown] = useState(false);
 
-	/* Estados para busca de sistema no modal */
 	const [sistemaSearch, setSistemaSearch] = useState("");
 	const [showSistemaDropdown, setShowSistemaDropdown] = useState(false);
 
-	/* ✅ FIX: verifica se o sistema selecionado é MBLOCK */
 	const isMblock = String(form.sistema ?? "").toUpperCase().includes("MBLOCK");
 
-	/* helper nome E código do cliente */
 	const nomeCliente = (id: number) =>
 		clientes.find((c) => c.id === id)?.nome ?? "—";
 
@@ -254,7 +241,6 @@ export default function ControleDeSistemaPage() {
 	const statusUI = (r: ControleSistema) =>
 		statusLabelFromId(Number(r.idStatus ?? statusIdFromLabel(r.status)));
 
-	/* trava scroll quando modal abre */
 	useEffect(() => {
 		document.body.style.overflow = editingId !== null ? "hidden" : "";
 		return () => {
@@ -262,8 +248,7 @@ export default function ControleDeSistemaPage() {
 		};
 	}, [editingId]);
 
-	/* ===== carregar CLIENTES + SISTEMAS + CLIENTESISTEMA ===== */
-	async function loadRows() {
+	const loadRows = useCallback(async () => {
 		try {
 			setLoading(true);
 			setError(null);
@@ -276,25 +261,17 @@ export default function ControleDeSistemaPage() {
 			let clientesArr: ClienteBase[] = [];
 			let sistemasArr: Sistema[] = [];
 
-			// --- CLIENTES COM PAGINAÇÃO ---
 			try {
-				const pageSize = 200;
+				const LIMIT = 200;
 				let offset = 0;
 				let allClientes: any[] = [];
 				let hasMore = true;
 
-				console.log("🔄 Iniciando busca paginada de clientes...");
-
 				while (hasMore) {
-					const params = new URLSearchParams();
-					params.set("limit", String(pageSize));
-					params.set("offset", String(offset));
-
-					console.log(`📡 Buscando clientes: offset=${offset}, limit=${pageSize}`);
-
-					const data = await backendFetch(`/clientes?${params.toString()}`, {
-						method: "GET",
-					});
+					const data = await backendFetch(
+						`/clientes?limit=${LIMIT}&offset=${offset}`,
+						{ method: "GET" }
+					);
 
 					let lista: any[] = [];
 					if (Array.isArray(data)) lista = data;
@@ -307,54 +284,39 @@ export default function ControleDeSistemaPage() {
 						else if (Array.isArray(d.$values)) lista = d.$values;
 					}
 
-					if (!Array.isArray(lista) || lista.length === 0) {
+					if (!lista.length) {
 						hasMore = false;
-						console.log(`✅ Fim da paginação.`);
 						break;
 					}
 
-					console.log(`📦 Recebidos ${lista.length} clientes nesta página`);
-
 					allClientes = [...allClientes, ...lista];
 
-					if (lista.length < pageSize) {
-						hasMore = false;
-						console.log(`✅ Última página alcançada`);
-					} else {
-						offset += pageSize;
-					}
+					if (lista.length < LIMIT) hasMore = false;
+					else offset += LIMIT;
 				}
-
-				console.log("📥 TOTAL de clientes recebidos do backend:", allClientes.length);
 
 				const mapCli = new Map<number, ClienteBase>();
 
 				for (const item of allClientes) {
 					const c = mapClienteFromApi(item);
-					if (c.id && c.nome && !mapCli.has(c.id)) mapCli.set(c.id, c);
+					if (c.id && c.nome && !mapCli.has(c.id)) {
+						mapCli.set(c.id, c);
+					}
 				}
 
-				clientesArr = Array.from(mapCli.values()).sort((a, b) =>
-					a.nome.localeCompare(b.nome, "pt-BR")
-				);
+				clientesArr = Array.from(mapCli.values())
+					.filter((c) => c.idStatus !== 3)
+					.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 
-				console.log("🗺️ Total de clientes mapeados:", clientesArr.length);
+				setClientes(clientesArr);
 
-				const filtered = clientesArr.filter((c) => {
-					return c.idStatus !== 3;
-				});
-
-				console.log("✅ Total após filtrar cancelados:", filtered.length);
-
-				setClientes(filtered);
-
-				for (const c of filtered) {
-					clienteStatusMap.set(c.id, { idStatus: c.idStatus, status: c.status });
+				for (const c of clientesArr) {
+					clienteStatusMap.set(c.id, {
+						idStatus: c.idStatus,
+						status: c.status,
+					});
 				}
-
-				console.log(`✅ ${filtered.length} clientes disponíveis`);
 			} catch (e: any) {
-				console.error("❌ Erro /clientes:", e);
 				if (isUnauthorized(e) && typeof window !== "undefined") {
 					window.location.href = "/";
 					return;
@@ -362,23 +324,22 @@ export default function ControleDeSistemaPage() {
 				throw new Error("Não foi possível carregar os clientes.");
 			}
 
-			// --- SISTEMAS ---
 			try {
-				const sistemasResp = await backendFetch("/sistema", { method: "GET" });
+				const sistemasResp = await backendFetch("/sistema", {
+					method: "GET",
+				});
 
 				const sisLista = normalizeList(sistemasResp);
 
 				sistemasArr = sisLista
 					.map(mapSistemaFromApi)
-					.filter((s: Sistema) => s.nome)
+					.filter((s: Sistema) => s.id > 0 && s.nome)
 					.sort((a: Sistema, b: Sistema) =>
 						a.nome.localeCompare(b.nome, "pt-BR")
 					);
 
 				setSistemas(sistemasArr);
-				console.log(`✅ ${sistemasArr.length} sistemas carregados`);
 			} catch (e: any) {
-				console.error("❌ Erro /sistema:", e);
 				if (isUnauthorized(e) && typeof window !== "undefined") {
 					window.location.href = "/";
 					return;
@@ -386,7 +347,6 @@ export default function ControleDeSistemaPage() {
 				throw new Error("Não foi possível carregar os sistemas.");
 			}
 
-			// --- CLIENTE/SISTEMA ---
 			try {
 				const clienteSistemaResp = await backendFetch("/clientesistema", {
 					method: "GET",
@@ -399,52 +359,50 @@ export default function ControleDeSistemaPage() {
 
 				let contadorOrfaos = 0;
 
-				const mappedRows = csLista.map((row: any) => {
-					const base = mapControleFromClienteSistema(row);
-					const cliStatus = clienteStatusMap.get(base.clienteId);
+				const mappedRows = csLista
+					.map((row: any) => {
+						const base = mapControleFromClienteSistema(row);
+						const cliStatus = clienteStatusMap.get(base.clienteId);
 
-					const clienteCancelado =
-						String(cliStatus?.status ?? "").trim() ===
-						"Irregular (Contrato Cancelado)";
+						const clienteCancelado =
+							String(cliStatus?.status ?? "").trim() ===
+							"Irregular (Contrato Cancelado)";
 
-					const idStatusNormalized = clienteCancelado
-						? 3
-						: Number(base.idStatus) > 0
-						? Number(base.idStatus)
-						: Number(cliStatus?.idStatus) > 0
-						? Number(cliStatus?.idStatus)
-						: statusIdFromLabel(base.status);
+						const idStatusNormalized = clienteCancelado
+							? 3
+							: Number(base.idStatus) > 0
+							? Number(base.idStatus)
+							: Number(cliStatus?.idStatus) > 0
+							? Number(cliStatus?.idStatus)
+							: statusIdFromLabel(base.status);
 
-					const statusNormalized = statusLabelFromId(idStatusNormalized);
+						const statusNormalized = statusLabelFromId(idStatusNormalized);
 
-					const sistemaNome =
-						(base.sistema && base.sistema.trim()) ||
-						sistemaMap.get(base.idSistema) ||
-						"";
+						const sistemaNome =
+							(base.sistema && base.sistema.trim()) ||
+							sistemaMap.get(base.idSistema) ||
+							"";
 
-					return {
-						...base,
-						sistema: sistemaNome,
-						idStatus: idStatusNormalized,
-						status: statusNormalized,
-					};
-				}).filter((r) => {
-					const clienteExiste = clienteStatusMap.has(r.clienteId);
-					const clienteCancelado = clienteStatusMap.get(r.clienteId)?.idStatus === 3;
+						return {
+							...base,
+							sistema: sistemaNome,
+							idStatus: idStatusNormalized,
+							status: statusNormalized,
+						};
+					})
+					.filter((r) => {
+						const clienteExiste = clienteStatusMap.has(r.clienteId);
+						const clienteCancelado =
+							clienteStatusMap.get(r.clienteId)?.idStatus === 3;
 
-					if (!clienteExiste) {
-						contadorOrfaos++;
-						console.warn(`⚠️ Cliente ID ${r.clienteId} não encontrado para registro ${r.id}`);
-					}
+						if (!clienteExiste) contadorOrfaos++;
 
-					return clienteExiste && !clienteCancelado;
-				});
+						return clienteExiste && !clienteCancelado;
+					});
 
 				setRows(mappedRows);
 				setRegistrosOrfaos(contadorOrfaos);
-				console.log(`✅ ${mappedRows.length} registros válidos carregados`);
 			} catch (e: any) {
-				console.error("❌ Erro /clientesistema:", e);
 				if (isUnauthorized(e) && typeof window !== "undefined") {
 					window.location.href = "/";
 					return;
@@ -459,13 +417,12 @@ export default function ControleDeSistemaPage() {
 		} finally {
 			setLoading(false);
 		}
-	}
+	}, []);
 
 	useEffect(() => {
 		loadRows();
-	}, []);
+	}, [loadRows]);
 
-	/* ordenação */
 	function toggleSort(key: SortKey) {
 		if (sortKey !== key) {
 			setSortKey(key);
@@ -479,9 +436,9 @@ export default function ControleDeSistemaPage() {
 		} else setSortDir("asc");
 	}
 
-	/* filtragem + ordenação */
 	const filtered = useMemo<ControleSistema[]>(() => {
 		const q = query.toLowerCase();
+
 		let data = rows.filter((r) =>
 			[
 				String(codigoCliente(r.clienteId)),
@@ -499,9 +456,7 @@ export default function ControleDeSistemaPage() {
 		if (sortKey && sortDir) {
 			data = [...data].sort((a, b) => {
 				if (sortKey === "codigo") {
-					const na = codigoCliente(a.clienteId);
-					const nb = codigoCliente(b.clienteId);
-					const cmp = na - nb;
+					const cmp = codigoCliente(a.clienteId) - codigoCliente(b.clienteId);
 					return sortDir === "asc" ? cmp : -cmp;
 				}
 
@@ -531,8 +486,8 @@ export default function ControleDeSistemaPage() {
 		return data;
 	}, [rows, query, sortKey, sortDir, clientes]);
 
-	/* paginação */
 	const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+
 	const pageData = useMemo(
 		() => filtered.slice((page - 1) * pageSize, page * pageSize),
 		[filtered, page, pageSize]
@@ -542,7 +497,6 @@ export default function ControleDeSistemaPage() {
 		setPage((p) => Math.min(p, totalPages));
 	}, [totalPages]);
 
-	/* Filtrar clientes com base na busca */
 	const filteredClientes = useMemo(() => {
 		if (!clienteSearch.trim()) return clientes;
 		const search = clienteSearch.toLowerCase();
@@ -553,18 +507,17 @@ export default function ControleDeSistemaPage() {
 		);
 	}, [clientes, clienteSearch]);
 
-	/* Filtrar sistemas com base na busca */
 	const filteredSistemas = useMemo(() => {
 		if (!sistemaSearch.trim()) return sistemas;
 		const search = sistemaSearch.toLowerCase();
 		return sistemas.filter((s) => s.nome.toLowerCase().includes(search));
 	}, [sistemas, sistemaSearch]);
 
-	/* ações */
 	function handleAdd() {
 		setEditingId(0);
 		setForm({
 			clienteId: undefined,
+			idSistema: undefined,
 			sistema: "",
 			qtdLicenca: 0,
 			qtdDiaLiberacao: 0,
@@ -605,9 +558,11 @@ export default function ControleDeSistemaPage() {
 		if (cliente) {
 			setClienteSearch(`${cliente.codigo} - ${cliente.nome}`);
 		}
-		setShowClienteDropdown(false);
 
-		setSistemaSearch(r.sistema);
+		const sistema = sistemas.find((s) => s.id === r.idSistema);
+		setSistemaSearch(sistema?.nome ?? r.sistema ?? "");
+
+		setShowClienteDropdown(false);
 		setShowSistemaDropdown(false);
 	}
 
@@ -629,16 +584,25 @@ export default function ControleDeSistemaPage() {
 	}
 
 	async function handleSave() {
-		if (!form.clienteId || !String(form.sistema ?? "").trim()) {
-			alert("Cliente e Sistema são obrigatórios.");
+		if (!form.clienteId) {
+			alert("Cliente é obrigatório.");
+			return;
+		}
+
+		const sistemaSelecionado = sistemas.find(
+			(s) =>
+				s.id === Number(form.idSistema) ||
+				s.nome.trim().toLowerCase() === String(form.sistema ?? "").trim().toLowerCase()
+		);
+
+		if (!sistemaSelecionado) {
+			alert("Sistema é obrigatório.");
 			return;
 		}
 
 		setSaving(true);
 
 		try {
-			const idSistema = sistemas.find((s) => s.nome === form.sistema)?.id ?? 0;
-
 			const idStatusFinal =
 				Number(form.idStatus) > 0
 					? Number(form.idStatus)
@@ -648,23 +612,19 @@ export default function ControleDeSistemaPage() {
 
 			const payload = {
 				idCliente: Number(form.clienteId),
-				idSistema: Number(idSistema),
-
+				idSistema: Number(sistemaSelecionado.id),
 				quantidadeLicenca: Number(form.qtdLicenca ?? 0),
 				quantidadeDiaLiberacao: Number(form.qtdDiaLiberacao ?? 0),
 				quantidadeBancoDados: Number(form.qtdBanco ?? 0),
 				quantidadeCnpj: Number(form.qtdCnpj ?? 0),
-
-				// ✅ FIX: só envia ipMblock/portaMblock se for MBLOCK
-				ipMblock: isMblock ? (form.ipMblock || null) : null,
-				portaMblock: isMblock ? (form.portaMblock || null) : null,
-				observacaoStatus: form.observacao || null,
-
+				ipMblock: isMblock ? String(form.ipMblock ?? "").trim() || null : null,
+				portaMblock: isMblock
+					? String(form.portaMblock ?? "").trim() || null
+					: null,
+				observacaoStatus: String(form.observacao ?? "").trim() || null,
 				idStatus: idStatusFinal,
 				status: statusFinal,
 			};
-
-			console.log("📤 Enviando payload:", { editingId, payload });
 
 			if (editingId === 0) {
 				await backendFetch("/clientesistema", {
@@ -681,15 +641,8 @@ export default function ControleDeSistemaPage() {
 			}
 
 			await loadRows();
-			setEditingId(null);
-			setForm({});
-			setClienteSearch("");
-			setShowClienteDropdown(false);
-			setSistemaSearch("");
-			setShowSistemaDropdown(false);
+			handleCancel();
 		} catch (e: any) {
-			console.error("❌ Erro ao salvar:", e);
-
 			const errorMessage =
 				e?.data?.error ||
 				e?.data?.message ||
@@ -710,18 +663,19 @@ export default function ControleDeSistemaPage() {
 		);
 	}
 
-	/* LISTA MOBILE */
 	const MobileList = () => (
 		<ul className="sm:hidden space-y-3">
 			{pageData.map((r, idx) => (
 				<li
-					key={`${page}-${idx}`}
+					key={`${r.id}-${idx}`}
 					className="rounded-xl border bg-white p-4 shadow"
 				>
 					<div className="flex items-start gap-3">
 						<div className="flex-1 min-w-0">
 							<div className="flex items-center gap-2 mb-1">
-								<span className="text-xs text-black">{codigoCliente(r.clienteId)}</span>
+								<span className="text-xs text-black">
+									{codigoCliente(r.clienteId)}
+								</span>
 								<div className="font-medium text-gray-900 break-words">
 									{nomeCliente(r.clienteId)}
 								</div>
@@ -737,6 +691,7 @@ export default function ControleDeSistemaPage() {
 							</button>
 						</div>
 					</div>
+
 					<div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-gray-700">
 						<div>
 							<span className="text-gray-500">Licenças:</span> {r.qtdLicenca}
@@ -827,13 +782,13 @@ export default function ControleDeSistemaPage() {
 
 						{registrosOrfaos > 0 && (
 							<div className="mb-4 rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-yellow-800 text-sm">
-								⚠️ {registrosOrfaos} registro(s) de cliente(s) que não existem mais foram ocultados.
+								⚠️ {registrosOrfaos} registro(s) de cliente(s) que não existem
+								mais foram ocultados.
 							</div>
 						)}
 
 						<MobileList />
 
-						{/* TABELA DESKTOP */}
 						<div className="hidden sm:block rounded-xl bg-white shadow overflow-hidden">
 							<div className="w-full overflow-x-auto">
 								<table className="min-w-full border-separate border-spacing-0 text-sm">
@@ -895,7 +850,7 @@ export default function ControleDeSistemaPage() {
 													? sortDir === "asc"
 														? "▲"
 														: "▼"
-													: ""}{" "}
+													: ""}
 											</th>
 											<th
 												className="px-3 py-3 cursor-pointer text-left whitespace-nowrap"
@@ -914,14 +869,14 @@ export default function ControleDeSistemaPage() {
 									<tbody className="text-gray-900">
 										{pageData.map((r, idx) => (
 											<tr
-												key={`${page}-${idx}`}
+												key={`${r.id}-${idx}`}
 												className={idx % 2 === 0 ? "bg-white" : "bg-gray-100"}
 											>
 												<td className="px-3 py-3">
 													<div className="flex text-left gap-2">
 														<button
 															onClick={() => handleEdit(r.id)}
-															className="w-7 h-7 rounded-xl align-itens bg-yellow-400 text-white hover:bg-yellow-500 transition-transform transform hover:scale-110"
+															className="w-7 h-7 rounded-xl bg-yellow-400 text-white hover:bg-yellow-500 transition-transform transform hover:scale-110"
 														>
 															✎
 														</button>
@@ -959,7 +914,10 @@ export default function ControleDeSistemaPage() {
 
 										{pageData.length === 0 && (
 											<tr>
-												<td colSpan={7} className="px-3 py-8 text-center text-gray-500">
+												<td
+													colSpan={7}
+													className="px-3 py-8 text-center text-gray-500"
+												>
 													Nenhum registro encontrado.
 												</td>
 											</tr>
@@ -969,7 +927,6 @@ export default function ControleDeSistemaPage() {
 							</div>
 						</div>
 
-						{/* paginação */}
 						<div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-black">
 							<div className="text-sm text-gray-700">
 								{filtered.length} registro(s) • Página {page} de {totalPages}
@@ -1015,12 +972,10 @@ export default function ControleDeSistemaPage() {
 								{error}
 							</div>
 						)}
-
 					</main>
 				</div>
 			</div>
 
-			{/* POPUP */}
 			{editingId !== null && (
 				<div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
 					<div className="absolute inset-0 bg-black/50" onClick={handleCancel} />
@@ -1033,8 +988,6 @@ export default function ControleDeSistemaPage() {
 
 							<div className="p-6">
 								<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-									{/* CLIENTE */}
 									<label className="text-sm md:col-span-2 relative">
 										<span className="block mb-1 text-black">Cliente *</span>
 										<input
@@ -1046,7 +999,6 @@ export default function ControleDeSistemaPage() {
 												setShowClienteDropdown(true);
 											}}
 											onFocus={() => setShowClienteDropdown(true)}
-											// ✅ FIX: fecha dropdown ao sair do campo
 											onBlur={() =>
 												setTimeout(() => setShowClienteDropdown(false), 150)
 											}
@@ -1066,14 +1018,14 @@ export default function ControleDeSistemaPage() {
 														}}
 														className="px-3 py-2 hover:bg-blue-100 cursor-pointer text-sm text-black"
 													>
-														<span className="font-semibold">{c.codigo}</span> - {c.nome}
+														<span className="font-semibold">{c.codigo}</span> -{" "}
+														{c.nome}
 													</li>
 												))}
 											</ul>
 										)}
 									</label>
 
-									{/* SISTEMA */}
 									<label className="text-sm md:col-span-2 relative">
 										<span className="block mb-1 text-black">Sistema *</span>
 										<input
@@ -1082,10 +1034,14 @@ export default function ControleDeSistemaPage() {
 											value={sistemaSearch}
 											onChange={(e) => {
 												setSistemaSearch(e.target.value);
+												setForm((prev) => ({
+													...prev,
+													sistema: e.target.value,
+													idSistema: undefined,
+												}));
 												setShowSistemaDropdown(true);
 											}}
 											onFocus={() => setShowSistemaDropdown(true)}
-											// ✅ FIX: fecha dropdown ao sair do campo
 											onBlur={() =>
 												setTimeout(() => setShowSistemaDropdown(false), 150)
 											}
@@ -1099,7 +1055,11 @@ export default function ControleDeSistemaPage() {
 														key={s.id}
 														onMouseDown={(e) => e.preventDefault()}
 														onClick={() => {
-															setForm((prev) => ({ ...prev, sistema: s.nome }));
+															setForm((prev) => ({
+																...prev,
+																sistema: s.nome,
+																idSistema: s.id,
+															}));
 															setSistemaSearch(s.nome);
 															setShowSistemaDropdown(false);
 														}}
@@ -1112,7 +1072,6 @@ export default function ControleDeSistemaPage() {
 										)}
 									</label>
 
-									{/* QTD LICENÇA */}
 									<label className="text-sm">
 										<span className="block mb-1 text-black">Qtd Licença</span>
 										<input
@@ -1128,9 +1087,10 @@ export default function ControleDeSistemaPage() {
 										/>
 									</label>
 
-									{/* QTD DIA LIBERAÇÃO */}
 									<label className="text-sm">
-										<span className="block mb-1 text-black">Qtd Dia Liberação</span>
+										<span className="block mb-1 text-black">
+											Qtd Dia Liberação
+										</span>
 										<input
 											type="number"
 											value={form.qtdDiaLiberacao ?? 0}
@@ -1144,9 +1104,10 @@ export default function ControleDeSistemaPage() {
 										/>
 									</label>
 
-									{/* QTD BANCO DE DADOS */}
 									<label className="text-sm">
-										<span className="block mb-1 text-black">Qtd Banco de Dados</span>
+										<span className="block mb-1 text-black">
+											Qtd Banco de Dados
+										</span>
 										<input
 											type="number"
 											value={form.qtdBanco ?? 0}
@@ -1160,7 +1121,6 @@ export default function ControleDeSistemaPage() {
 										/>
 									</label>
 
-									{/* QTD CNPJ */}
 									<label className="text-sm">
 										<span className="block mb-1 text-black">Qtd CNPJ</span>
 										<input
@@ -1176,7 +1136,6 @@ export default function ControleDeSistemaPage() {
 										/>
 									</label>
 
-									{/* ✅ FIX: IP MBLOCK — só aparece se sistema for MBLOCK */}
 									{isMblock && (
 										<label className="text-sm">
 											<span className="block mb-1 text-black">IP Mblock</span>
@@ -1194,10 +1153,11 @@ export default function ControleDeSistemaPage() {
 										</label>
 									)}
 
-									{/* ✅ FIX: PORTA MBLOCK — só aparece se sistema for MBLOCK */}
 									{isMblock && (
 										<label className="text-sm">
-											<span className="block mb-1 text-black">Porta Mblock</span>
+											<span className="block mb-1 text-black">
+												Porta Mblock
+											</span>
 											<input
 												type="text"
 												value={form.portaMblock ?? ""}
@@ -1212,7 +1172,6 @@ export default function ControleDeSistemaPage() {
 										</label>
 									)}
 
-									{/* STATUS */}
 									<label className="text-sm md:col-span-2">
 										<span className="block mb-1 text-black">Status</span>
 										<div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -1238,7 +1197,6 @@ export default function ControleDeSistemaPage() {
 										</div>
 									</label>
 
-									{/* OBSERVAÇÃO */}
 									<label className="text-sm md:col-span-2">
 										<span className="block mb-1 text-black">Observação</span>
 										<textarea
