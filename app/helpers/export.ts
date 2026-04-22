@@ -28,17 +28,17 @@ export function toCSV(rows: Cliente[]): string {
 		"Email",
 	];
 
-	const body = rows.map((r) => {
-		const cols = [
-			r.codigo,
-			r.razaoSocial,
-			formatCNPJ(String((r as any).cnpj ?? r.documento ?? "")),
-			r.dataRegistro,
-			r.contato,
-			formatPhone(r.telefone),
-			r.email,
-		].map((val) => `"${String(val ?? "").replace(/"/g, '""')}"`);
-		return cols.join(";");
+		const body = rows.map((r) => {
+	    const cols = [
+	        r.codigo,
+	        r.razaoSocial,
+	        formatCNPJ(String(r.cnpj ?? "")), // ✅ voltou para cnpj
+	        r.dataRegistro,
+	        r.contato,
+	        formatPhone(r.telefone),
+	        r.email,
+	    ].map((val) => `"${String(val ?? "").replace(/"/g, '""')}"`);
+	    return cols.join(";");
 	});
 
 	return "\uFEFF" + header.join(";") + "\n" + body.join("\n");
