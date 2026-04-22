@@ -1,8 +1,14 @@
 import type { Cliente } from "../(pages)/clientes/page"; // ajuste se seu caminho diferir
 
 /* --- helpers locais só para o CSV --- */
-function formatCNPJ(v: string) {
-	const s = (v || "").replace(/\D/g, "").slice(0, 14);
+
+// ✅ ALTERADO: era formatCNPJ, agora formata CPF ou CNPJ automaticamente
+function formatDoc(v: string) {
+	const d = (v || "").replace(/\D/g, "");
+	if (d.length === 11) {
+		return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
+	}
+	const s = d.slice(0, 14);
 	return s
 		.replace(/^(\d{2})(\d)/, "$1.$2")
 		.replace(/^(\d{2}\.\d{3})(\d)/, "$1.$2")
@@ -23,7 +29,7 @@ export function toCSV(rows: Cliente[]): string {
 	const header = [
 		"Código",
 		"Razão Social",
-		"CNPJ",
+		"Documento", // ✅ ALTERADO: era "CNPJ"
 		"Data Registro",
 		"Contato",
 		"Telefone",
@@ -34,12 +40,12 @@ export function toCSV(rows: Cliente[]): string {
 		const cols = [
 			r.codigo,
 			r.razaoSocial,
-			formatCNPJ(r.cnpj),
+			formatDoc(r.documento), // ✅ ALTERADO: era formatCNPJ(r.cnpj)
 			r.dataRegistro,
 			r.contato,
 			formatPhone(r.telefone),
 			r.email,
-		].map((val) => `"${String(val ?? "").replace(/"/g, '""')}"`); // escapa aspas
+		].map((val) => `"${String(val ?? "").replace(/"/g, '""')}"`);
 		return cols.join(";");
 	});
 
