@@ -1,4 +1,4 @@
-// cadastro de clientes
+// cadastro de clientes 
 "use client";
 // debug
 import { useMemo, useState, useRef, useCallback } from "react";
@@ -16,7 +16,7 @@ export type Cliente = {
 	codigo: number;
 	razaoSocial: string;
 	nomeFantasia?: string;
-	documento: string; // ✅ ALTERADO: era "cnpj"
+	cnpj: string;
 	dataRegistro: string;
 	contato: string;
 	telefone: string;
@@ -50,7 +50,7 @@ type ClienteApi = {
 	id: number;
 	nome: string;
 	nomeFantasia?: string;
-	documento: string; // ✅ ALTERADO: era "cnpj"
+	cnpj: string;
 	dataRegistro: string;
 	nomeContato?: string;
 	telefone?: string;
@@ -214,26 +214,22 @@ function maskBRDateInput(value: string) {
 function mapClienteFromApi(row: any): Cliente {
 	const r = row as ClienteApi;
 
-	const sistemaPainel =
-		Array.isArray(r?.sistemas) && r.sistemas.length > 0
-			? r.sistemas.find((s) => Number(s.idSistema) === SISTEMA_ID)
-			: undefined;
+	const sistemaPainel = Array.isArray(r?.sistemas) && r.sistemas.length > 0
+		? r.sistemas.find((s) => Number(s.idSistema) === SISTEMA_ID)
+		: undefined;
 
-	const nomeFantasiaOriginal = r.nomeFantasia
-		? String(r.nomeFantasia).trim()
-		: "";
+	const nomeFantasiaOriginal = r.nomeFantasia ? String(r.nomeFantasia).trim() : "";
 	const razaoSocial = String(r.nome ?? "").trim();
-	const nomeFantasia =
-		nomeFantasiaOriginal && nomeFantasiaOriginal !== razaoSocial
-			? nomeFantasiaOriginal
-			: "";
+	const nomeFantasia = nomeFantasiaOriginal && nomeFantasiaOriginal !== razaoSocial 
+		? nomeFantasiaOriginal 
+		: "";
 
 	return {
 		id: Number(r.id ?? 0),
 		codigo: Number(r.id ?? 0),
 		razaoSocial,
 		nomeFantasia,
-		documento: String(r.documento ?? ""), // ✅ ALTERADO: era r.cnpj
+		cnpj: String(r.cnpj ?? ""),
 		dataRegistro: formatBackendDate(r.dataRegistro ?? ""),
 		contato: String(r.nomeContato ?? ""),
 		telefone: String(r.telefone ?? ""),
@@ -249,7 +245,7 @@ type SortKey = keyof Pick<
 	| "codigo"
 	| "razaoSocial"
 	| "nomeFantasia"
-	| "documento" // ✅ ALTERADO: era "cnpj"
+	| "cnpj"
 	| "dataRegistro"
 	| "contato"
 	| "telefone"
@@ -271,7 +267,7 @@ export default function ClientesPage() {
 	const [editingId, setEditingId] = useState<number | null>(null);
 	const [editForm, setEditForm] = useState<Partial<Cliente>>({});
 	const [errors, setErrors] = useState<{
-		documento?: string; // ✅ ALTERADO: era "cnpj"
+		cnpj?: string;
 		email?: string;
 		razaoSocial?: string;
 		dataRegistro?: string;
@@ -285,130 +281,143 @@ export default function ClientesPage() {
 	const requestIdRef = useRef(0);
 
 	/* ====== Buscar TODOS os clientes com paginação ====== */
-	const loadRows = useCallback(async () => {
-		const currentReq = ++requestIdRef.current;
+	const loadRows = useCallback(
+		async () => {
+			const currentReq = ++requestIdRef.current;
 
-		try {
-			setLoading(true);
+			try {
+				setLoading(true);
 
-			const pageSize = 500;
-			let offset = 0;
-			let allClientes: any[] = [];
-			let hasMore = true;
+				const pageSize = 500;
+				let offset = 0;
+				let allClientes: any[] = [];
+				let hasMore = true;
 
-			console.log("🔄 Iniciando busca paginada de clientes...");
+				console.log("🔄 Iniciando busca paginada de clientes...");
 
-			while (hasMore) {
-				const params = new URLSearchParams();
-				params.set("limit", String(pageSize));
-				params.set("offset", String(offset));
+				while (hasMore) {
+					const params = new URLSearchParams();
+					params.set("limit", String(pageSize));
+					params.set("offset", String(offset));
 
-				const data = await backendFetch(`/clientes?${params.toString()}`, {
-					method: "GET",
-				});
-
-				if (currentReq !== requestIdRef.current) return;
-
-				let lista: any[] = [];
-				if (Array.isArray(data)) lista = data;
-				else if (data && typeof data === "object") {
-					const d: any = data;
-					if (Array.isArray(d.data)) lista = d.data;
-					else if (Array.isArray(d.items)) lista = d.items;
-					else if (Array.isArray(d.result)) lista = d.result;
-					else if (Array.isArray(d.value)) lista = d.value;
-					else if (Array.isArray(d.$values)) lista = d.$values;
-				}
-
-				if (!Array.isArray(lista) || lista.length === 0) {
-					hasMore = false;
-					break;
-				}
-
-				allClientes = [...allClientes, ...lista];
-
-				if (lista.length < pageSize) {
-					hasMore = false;
-				} else {
-					offset += pageSize;
-				}
-			}
-
-			console.log("📥 TOTAL de clientes recebidos do backend:", allClientes.length);
-
-			const idsDesaparecidos = [260, 261, 262, 263, 264, 265];
-			console.log("\n🔍 TENTANDO BUSCAR OS 6 CLIENTES INDIVIDUALMENTE:");
-
-			const clientesEncontrados: any[] = [];
-
-			for (const id of idsDesaparecidos) {
-				try {
-					console.log(`🔎 Buscando GET /clientes/${id}...`);
-					const clienteIndividual = await backendFetch(`/clientes/${id}`, {
+					const data = await backendFetch(`/clientes?${params.toString()}`, {
 						method: "GET",
 					});
 
-					if (clienteIndividual && clienteIndividual.id) {
-						console.log(`✅ Cliente ${id} EXISTE no banco!`, {
-							nome: clienteIndividual.nome,
-							documento: clienteIndividual.documento,
-							sistemas: clienteIndividual.sistemas?.length || 0,
-						});
-						clientesEncontrados.push(clienteIndividual);
-						allClientes.push(clienteIndividual);
-					} else {
-						console.log(`❌ Cliente ${id} retornou resposta vazia`);
+					if (currentReq !== requestIdRef.current) return;
+
+					let lista: any[] = [];
+					if (Array.isArray(data)) lista = data;
+					else if (data && typeof data === "object") {
+						const d: any = data;
+						if (Array.isArray(d.data)) lista = d.data;
+						else if (Array.isArray(d.items)) lista = d.items;
+						else if (Array.isArray(d.result)) lista = d.result;
+						else if (Array.isArray(d.value)) lista = d.value;
+						else if (Array.isArray(d.$values)) lista = d.$values;
 					}
-				} catch (e) {
-					console.error(`❌ Cliente ${id} NÃO EXISTE (erro ao buscar):`, e);
+
+					if (!Array.isArray(lista) || lista.length === 0) {
+						hasMore = false;
+						break;
+					}
+
+					allClientes = [...allClientes, ...lista];
+					
+					if (lista.length < pageSize) {
+						hasMore = false;
+					} else {
+						offset += pageSize;
+					}
 				}
-			}
 
-			console.log(`\n✅ Encontrados ${clientesEncontrados.length} dos 6 clientes desaparecidos!`);
-			console.log(`📥 NOVO TOTAL após busca individual: ${allClientes.length} clientes`);
+				console.log("📥 TOTAL de clientes recebidos do backend:", allClientes.length);
 
-			const mapped: Cliente[] = allClientes.map(mapClienteFromApi);
-			console.log("\n🗺️ Total de clientes mapeados:", mapped.length);
-
-			const uniqueMap = new Map<string, Cliente>();
-			for (const c of mapped) {
-				const key = String(c.id);
-				if (!uniqueMap.has(key)) {
-					uniqueMap.set(key, c);
+				// ✅ TENTATIVA DE BUSCAR OS 6 CLIENTES INDIVIDUALMENTE
+				const idsDesaparecidos = [260, 261, 262, 263, 264, 265];
+				console.log("\n🔍 TENTANDO BUSCAR OS 6 CLIENTES INDIVIDUALMENTE:");
+				
+				const clientesEncontrados: any[] = [];
+				
+				for (const id of idsDesaparecidos) {
+					try {
+						console.log(`🔎 Buscando GET /clientes/${id}...`);
+						const clienteIndividual = await backendFetch(`/clientes/${id}`, {
+							method: "GET",
+						});
+						
+						if (clienteIndividual && clienteIndividual.id) {
+							console.log(`✅ Cliente ${id} EXISTE no banco!`, {
+								nome: clienteIndividual.nome,
+								cnpj: clienteIndividual.cnpj,
+								sistemas: clienteIndividual.sistemas?.length || 0
+							});
+							clientesEncontrados.push(clienteIndividual);
+							
+							// ✅ ADICIONA NA LISTA!
+							allClientes.push(clienteIndividual);
+						} else {
+							console.log(`❌ Cliente ${id} retornou resposta vazia`);
+						}
+					} catch (e) {
+						console.error(`❌ Cliente ${id} NÃO EXISTE (erro ao buscar):`, e);
+					}
 				}
-			}
-			let unique = Array.from(uniqueMap.values());
+				
+				console.log(`\n✅ Encontrados ${clientesEncontrados.length} dos 6 clientes desaparecidos!`);
+				console.log(`📥 NOVO TOTAL após busca individual: ${allClientes.length} clientes`);
 
-			console.log("🔍 Total após remoção de duplicatas:", unique.length);
+				// ✅ MAPEIA TODOS
+				const mapped: Cliente[] = allClientes.map(mapClienteFromApi);
+				console.log("\n🗺️ Total de clientes mapeados:", mapped.length);
 
-			const filtered = unique.filter((c) => c.idStatus !== 3);
-			console.log("✅ Total após filtrar cancelados:", filtered.length);
-
-			console.log("\n🔍 VERIFICAÇÃO FINAL:");
-			for (const id of idsDesaparecidos) {
-				const clienteFinal = filtered.find((c) => c.codigo === id);
-				if (clienteFinal) {
-					console.log(`✅ Cliente ${id} ESTÁ NA LISTA FINAL! 🎉`);
-				} else {
-					console.error(`❌ Cliente ${id} NÃO ESTÁ NA LISTA FINAL!`);
+				// ✅ Remove duplicatas
+				const uniqueMap = new Map<string, Cliente>();
+				
+				for (const c of mapped) {
+					const key = String(c.id);
+					if (!uniqueMap.has(key)) {
+						uniqueMap.set(key, c);
+					}
 				}
+				let unique = Array.from(uniqueMap.values());
+
+				console.log("🔍 Total após remoção de duplicatas:", unique.length);
+
+				// ✅ Filtra cancelados
+				const filtered = unique.filter((c) => c.idStatus !== 3);
+
+				console.log("✅ Total após filtrar cancelados:", filtered.length);
+
+				// ✅ VERIFICAÇÃO FINAL DOS 6
+				console.log("\n🔍 VERIFICAÇÃO FINAL:");
+				for (const id of idsDesaparecidos) {
+					const clienteFinal = filtered.find(c => c.codigo === id);
+					if (clienteFinal) {
+						console.log(`✅ Cliente ${id} ESTÁ NA LISTA FINAL! 🎉`);
+					} else {
+						console.error(`❌ Cliente ${id} NÃO ESTÁ NA LISTA FINAL!`);
+					}
+				}
+
+				// ✅ RESUMO
+				console.log("\n📊 RESUMO:");
+				console.log(`GET /clientes retornou: 190 clientes`);
+				console.log(`Busca individual encontrou: ${clientesEncontrados.length} clientes`);
+				console.log(`Total combinado: ${allClientes.length} clientes`);
+				console.log(`Após processamento: ${filtered.length} clientes na lista final`);
+
+				setRows(filtered);
+				setPage(1);
+			} catch (e) {
+				console.error("❌ Falha ao buscar clientes:", e);
+				alert("Não foi possível carregar os clientes. Verifique sua conexão.");
+			} finally {
+				if (currentReq === requestIdRef.current) setLoading(false);
 			}
-
-			console.log("\n📊 RESUMO:");
-			console.log(`GET /clientes retornou: 190 clientes`);
-			console.log(`Busca individual encontrou: ${clientesEncontrados.length} clientes`);
-			console.log(`Total combinado: ${allClientes.length} clientes`);
-			console.log(`Após processamento: ${filtered.length} clientes na lista final`);
-
-			setRows(filtered);
-			setPage(1);
-		} catch (e) {
-			console.error("❌ Falha ao buscar clientes:", e);
-			alert("Não foi possível carregar os clientes. Verifique sua conexão.");
-		} finally {
-			if (currentReq === requestIdRef.current) setLoading(false);
-		}
-	}, []);
+		},
+		[]
+	);
 
 	useMountEffect(() => {
 		loadRows();
@@ -433,7 +442,7 @@ export default function ClientesPage() {
 					String(r.codigo),
 					r.razaoSocial,
 					r.nomeFantasia ?? "",
-					r.documento, // ✅ ALTERADO: era r.cnpj
+					r.cnpj,
 					r.dataRegistro,
 					r.contato,
 					r.telefone,
@@ -498,7 +507,7 @@ export default function ClientesPage() {
 	function isDuplicateDoc(docDigits: string) {
 		const normalized = onlyDigits(docDigits);
 		return rows.some((r) => {
-			const other = onlyDigits(r.documento || ""); // ✅ ALTERADO: era r.cnpj
+			const other = onlyDigits(r.cnpj || "");
 			if (!other) return false;
 			if (editingId && editingId !== 0 && r.id === editingId) return false;
 			return other === normalized;
@@ -509,7 +518,7 @@ export default function ClientesPage() {
 		const c = rows.find((r) => r.id === id);
 		if (!c) return;
 
-		const digits = onlyDigits(c.documento || ""); // ✅ ALTERADO: era c.cnpj
+		const digits = onlyDigits(c.cnpj || "");
 		const isCpf = digits.length === 11;
 
 		setEditingId(id);
@@ -517,7 +526,7 @@ export default function ClientesPage() {
 
 		setEditForm({
 			...c,
-			documento: digits, // ✅ ALTERADO: era cnpj
+			cnpj: digits,
 			dataRegistro: formatBackendDate(c.dataRegistro),
 			nomeFantasia: c.nomeFantasia ?? "",
 		});
@@ -539,7 +548,7 @@ export default function ClientesPage() {
 			codigo: rows.length ? Math.max(...rows.map((r) => r.codigo)) + 1 : 1,
 			razaoSocial: "",
 			nomeFantasia: "",
-			documento: "", // ✅ ALTERADO: era cnpj
+			cnpj: "",
 			dataRegistro: new Date().toLocaleDateString("pt-BR"),
 			contato: "",
 			telefone: "",
@@ -558,7 +567,7 @@ export default function ClientesPage() {
 		id?: number;
 		nome: string;
 		nomeFantasia: string;
-		documento: string; // ✅ ALTERADO: era cnpj
+		cnpj: string;
 		dataRegistroISO: string;
 		nomeContato: string;
 		telefone: string;
@@ -588,16 +597,15 @@ export default function ClientesPage() {
 			nome: "",
 		};
 
-		const nomeFantasiaFinal =
-			params.nomeFantasia.trim() === params.nome.trim()
-				? ""
-				: params.nomeFantasia.trim();
+		const nomeFantasiaFinal = params.nomeFantasia.trim() === params.nome.trim() 
+			? "" 
+			: params.nomeFantasia.trim();
 
 		return {
 			id: params.id ?? 0,
 			nome: params.nome,
 			nomeFantasia: nomeFantasiaFinal,
-			documento: params.documento, // ✅ ALTERADO: era cnpj
+			cnpj: params.cnpj,
 			dataRegistro: params.dataRegistroISO,
 			nomeContato: params.nomeContato,
 			telefone: params.telefone,
@@ -610,14 +618,14 @@ export default function ClientesPage() {
 		if (editingId === null) return;
 
 		const errs: {
-			documento?: string; // ✅ ALTERADO: era cnpj
+			cnpj?: string;
 			email?: string;
 			razaoSocial?: string;
 			dataRegistro?: string;
 		} = {};
 
 		const email = (editForm.email ?? "").trim();
-		const docDigits = onlyDigits(String(editForm.documento ?? "")); // ✅ ALTERADO
+		const docDigits = onlyDigits(String(editForm.cnpj ?? ""));
 		const razaoSocial = (editForm.razaoSocial ?? "").trim();
 		const nomeFantasia = (editForm.nomeFantasia ?? "").trim();
 		const dataRegistroBR = formatBackendDate(editForm.dataRegistro ?? "").trim();
@@ -627,27 +635,22 @@ export default function ClientesPage() {
 		if (!email) errs.email = "Email é obrigatório.";
 		else if (!isValidEmail(email)) errs.email = "Email inválido.";
 
-		if (!docDigits)
-			errs.documento = useCPF ? "CPF é obrigatório." : "CNPJ é obrigatório."; // ✅ ALTERADO
+		if (!docDigits) errs.cnpj = useCPF ? "CPF é obrigatório." : "CNPJ é obrigatório.";
 		else if (useCPF) {
-			if (docDigits.length !== 11)
-				errs.documento = "CPF deve ter 11 dígitos.";
-			else if (!isValidCPF(docDigits)) errs.documento = "CPF inválido.";
-			else if (isDuplicateDoc(docDigits))
-				errs.documento = "CPF duplicado no cadastro.";
+			if (docDigits.length !== 11) errs.cnpj = "CPF deve ter 11 dígitos.";
+			else if (!isValidCPF(docDigits)) errs.cnpj = "CPF inválido.";
+			else if (isDuplicateDoc(docDigits)) errs.cnpj = "CPF duplicado no cadastro.";
 		} else {
-			if (docDigits.length !== 14)
-				errs.documento = "CNPJ deve ter 14 dígitos.";
-			else if (!isValidCNPJ(docDigits)) errs.documento = "CNPJ inválido.";
-			else if (isDuplicateDoc(docDigits))
-				errs.documento = "CNPJ duplicado no cadastro.";
+			if (docDigits.length !== 14) errs.cnpj = "CNPJ deve ter 14 dígitos.";
+			else if (!isValidCNPJ(docDigits)) errs.cnpj = "CNPJ inválido.";
+			else if (isDuplicateDoc(docDigits)) errs.cnpj = "CNPJ duplicado no cadastro.";
 		}
 
 		if (dataRegistroBR && !isValidBRDate(dataRegistroBR)) {
 			errs.dataRegistro = "Data inválida. Use dd/mm/aaaa.";
 		}
 
-		if (errs.email || errs.documento || errs.razaoSocial || errs.dataRegistro) {
+		if (errs.email || errs.cnpj || errs.razaoSocial || errs.dataRegistro) {
 			setErrors(errs);
 			return;
 		}
@@ -659,7 +662,7 @@ export default function ClientesPage() {
 			id: editingId === 0 ? 0 : editingId,
 			nome: razaoSocial,
 			nomeFantasia,
-			documento: docDigits, // ✅ ALTERADO
+			cnpj: docDigits,
 			dataRegistroISO: dataISO,
 			nomeContato: String(editForm.contato ?? ""),
 			telefone: String(editForm.telefone ?? ""),
@@ -686,20 +689,17 @@ export default function ClientesPage() {
 				});
 
 				const sistemasExistentes = clienteCompleto?.sistemas || [];
-
+				
 				const payloadEdit = {
 					id: clienteCompleto.id,
 					nome: razaoSocial,
 					nomeFantasia: payload.nomeFantasia,
-					documento: docDigits, // ✅ ALTERADO: era cnpj
+					cnpj: docDigits,
 					dataRegistro: payload.dataRegistro,
 					nomeContato: payload.nomeContato,
 					telefone: payload.telefone,
 					email,
-					sistemas:
-						sistemasExistentes.length > 0
-							? sistemasExistentes
-							: payload.sistemas,
+					sistemas: sistemasExistentes.length > 0 ? sistemasExistentes : payload.sistemas,
 				};
 
 				const response = await backendFetch(`/clientes/${editingId}`, {
@@ -718,14 +718,13 @@ export default function ClientesPage() {
 			await loadRows();
 		} catch (e) {
 			console.error("❌ Falha ao salvar cliente:", e);
-			alert(
-				"Não foi possível salvar o cliente. Verifique os dados e tente novamente."
-			);
+			alert("Não foi possível salvar o cliente. Verifique os dados e tente novamente.");
 		} finally {
 			setSaving(false);
 		}
 	}
 
+	// ✅ ALTERADO: agora usa DELETE /clientes/{id}
 	async function handleDelete(id: number) {
 		const cliente = rows.find((r) => r.id === id);
 		if (!cliente) return;
@@ -742,9 +741,7 @@ export default function ClientesPage() {
 				method: "DELETE",
 			});
 
-			console.log(
-				`✅ Cliente ${id} (${cliente.razaoSocial}) cancelado com sucesso`
-			);
+			console.log(`✅ Cliente ${id} (${cliente.razaoSocial}) cancelado com sucesso`);
 
 			await loadRows();
 		} catch (e) {
@@ -797,10 +794,9 @@ export default function ClientesPage() {
 					<div className="mt-2 grid grid-cols-1 gap-1 text-sm text-gray-700">
 						<div>
 							<span className="text-gray-500">
-								{/* ✅ ALTERADO: era r.cnpj */}
-								{onlyDigits(r.documento).length === 11 ? "CPF:" : "CNPJ:"}
+								{onlyDigits(r.cnpj).length === 11 ? "CPF:" : "CNPJ:"}
 							</span>{" "}
-							{formatDoc(r.documento) /* ✅ ALTERADO */}
+							{formatDoc(r.cnpj)}
 						</div>
 						<div>
 							<span className="text-gray-500">Data:</span>{" "}
@@ -954,10 +950,10 @@ export default function ClientesPage() {
 											</th>
 											<th
 												className="px-2 lg:px-3 py-2 lg:py-3 w-36 lg:w-44 text-left whitespace-nowrap cursor-pointer text-xs lg:text-sm"
-												onClick={() => toggleSort("documento")} // ✅ ALTERADO
+												onClick={() => toggleSort("cnpj")}
 											>
 												Documento{" "}
-												{sortKey === "documento" // ✅ ALTERADO
+												{sortKey === "cnpj"
 													? sortDir === "asc"
 														? "▲"
 														: "▼"
@@ -1048,16 +1044,13 @@ export default function ClientesPage() {
 												</td>
 
 												<td className="px-2 lg:px-3 py-2 lg:py-3 max-w-[150px] lg:max-w-[180px] text-left text-xs lg:text-sm">
-													<div
-														className="truncate"
-														title={r.nomeFantasia || ""}
-													>
+													<div className="truncate" title={r.nomeFantasia || ""}>
 														{r.nomeFantasia?.trim() ? r.nomeFantasia : "—"}
 													</div>
 												</td>
 
 												<td className="px-2 lg:px-3 py-2 lg:py-3 whitespace-nowrap text-left text-xs lg:text-sm">
-													{formatDoc(r.documento) /* ✅ ALTERADO */}
+													{formatDoc(r.cnpj)}
 												</td>
 
 												<td className="px-2 lg:px-3 py-2 lg:py-3 whitespace-nowrap text-left text-xs lg:text-sm">
@@ -1093,10 +1086,7 @@ export default function ClientesPage() {
 
 										{pageData.length === 0 && (
 											<tr>
-												<td
-													className="px-3 py-8 text-center text-gray-500"
-													colSpan={9}
-												>
+												<td className="px-3 py-8 text-center text-gray-500" colSpan={9}>
 													Nenhum registro encontrado.
 												</td>
 											</tr>
@@ -1110,11 +1100,7 @@ export default function ClientesPage() {
 							<div className="text-xs lg:text-sm text-gray-700">
 								{filtered.length} registro(s) • Página {page} de {totalPages}
 							</div>
-							<div
-								className="flex items-center gap-2"
-								role="navigation"
-								aria-label="Paginação"
-							>
+							<div className="flex items-center gap-2" role="navigation" aria-label="Paginação">
 								<button
 									className="flex text-sm items-center justify-center rounded-xl bg-white text-blue-500 w-9 h-9 shadow-sm transform transition-transform hover:scale-110 disabled:opacity-40"
 									onClick={() => setPage(1)}
@@ -1160,10 +1146,7 @@ export default function ClientesPage() {
 					aria-modal="true"
 					aria-label={editingId === 0 ? "Adicionar Cliente" : "Editar Cliente"}
 				>
-					<div
-						className="absolute inset-0 bg-black/50"
-						onClick={handleEditCancel}
-					/>
+					<div className="absolute inset-0 bg-black/50" onClick={handleEditCancel} />
 					<div className="absolute inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-3">
 						<div className="h-full w-full sm:h-auto sm:w-full sm:max-w-2xl rounded-none sm:rounded-xl bg-white shadow-lg overflow-y-auto">
 							<h2 className="sticky top-0 z-10 px-6 py-4 text-xl font-semibold text-blue-700 bg-white border-b">
@@ -1206,15 +1189,11 @@ export default function ClientesPage() {
 												}));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
-												errors.razaoSocial
-													? "border-red-500"
-													: "border-gray-300"
+												errors.razaoSocial ? "border-red-500" : "border-gray-300"
 											} text-black`}
 										/>
 										{errors.razaoSocial && (
-											<p className="mt-1 text-xs text-red-600">
-												{errors.razaoSocial}
-											</p>
+											<p className="mt-1 text-xs text-red-600">{errors.razaoSocial}</p>
 										)}
 									</label>
 
@@ -1244,14 +1223,8 @@ export default function ClientesPage() {
 													onChange={(e) => {
 														const checked = e.target.checked;
 														setUseCPF(checked);
-														setEditForm((prev) => ({
-															...prev,
-															documento: "", // ✅ ALTERADO
-														}));
-														setErrors((prev) => ({
-															...prev,
-															documento: undefined, // ✅ ALTERADO
-														}));
+														setEditForm((prev) => ({ ...prev, cnpj: "" }));
+														setErrors((prev) => ({ ...prev, cnpj: undefined }));
 													}}
 												/>
 												CPF
@@ -1260,23 +1233,18 @@ export default function ClientesPage() {
 
 										<input
 											type="text"
-											value={String(editForm.documento ?? "") /* ✅ ALTERADO */}
+											value={String(editForm.cnpj ?? "")}
 											onChange={(e) => {
 												const maxLen = useCPF ? 11 : 14;
 												const digits = e.target.value
 													.replace(/\D/g, "")
 													.slice(0, maxLen);
-												setEditForm((prev) => ({
-													...prev,
-													documento: digits, // ✅ ALTERADO
-												}));
+												setEditForm((prev) => ({ ...prev, cnpj: digits }));
 
 												if (!digits) {
 													setErrors((prev) => ({
 														...prev,
-														documento: useCPF // ✅ ALTERADO
-															? "CPF é obrigatório."
-															: "CNPJ é obrigatório.",
+														cnpj: useCPF ? "CPF é obrigatório." : "CNPJ é obrigatório.",
 													}));
 													return;
 												}
@@ -1285,76 +1253,54 @@ export default function ClientesPage() {
 													if (digits.length !== 11)
 														setErrors((prev) => ({
 															...prev,
-															documento: "CPF deve ter 11 dígitos.",
+															cnpj: "CPF deve ter 11 dígitos.",
 														}));
 													else if (!isValidCPF(digits))
-														setErrors((prev) => ({
-															...prev,
-															documento: "CPF inválido.",
-														}));
+														setErrors((prev) => ({ ...prev, cnpj: "CPF inválido." }));
 													else if (isDuplicateDoc(digits))
 														setErrors((prev) => ({
 															...prev,
-															documento: "CPF duplicado no cadastro.",
+															cnpj: "CPF duplicado no cadastro.",
 														}));
-													else
-														setErrors((prev) => ({
-															...prev,
-															documento: undefined,
-														}));
+													else setErrors((prev) => ({ ...prev, cnpj: undefined }));
 												} else {
 													if (digits.length !== 14)
 														setErrors((prev) => ({
 															...prev,
-															documento: "CNPJ deve ter 14 dígitos.",
+															cnpj: "CNPJ deve ter 14 dígitos.",
 														}));
 													else if (!isValidCNPJ(digits))
-														setErrors((prev) => ({
-															...prev,
-															documento: "CNPJ inválido.",
-														}));
+														setErrors((prev) => ({ ...prev, cnpj: "CNPJ inválido." }));
 													else if (isDuplicateDoc(digits))
 														setErrors((prev) => ({
 															...prev,
-															documento: "CNPJ duplicado no cadastro.",
+															cnpj: "CNPJ duplicado no cadastro.",
 														}));
-													else
-														setErrors((prev) => ({
-															...prev,
-															documento: undefined,
-														}));
+													else setErrors((prev) => ({ ...prev, cnpj: undefined }));
 												}
 											}}
 											onBlur={() => {
 												setEditForm((prev) => {
-													const d = String(prev.documento ?? ""); // ✅ ALTERADO
+													const d = String(prev.cnpj ?? "");
 													const digits = d.replace(/\D/g, "");
 													return {
 														...prev,
-														documento: useCPF // ✅ ALTERADO
-															? formatCPF(digits)
-															: formatCNPJ(digits),
+														cnpj: useCPF ? formatCPF(digits) : formatCNPJ(digits),
 													};
 												});
 											}}
 											onFocus={() => {
 												setEditForm((prev) => ({
 													...prev,
-													documento: onlyDigits( // ✅ ALTERADO
-														String(prev.documento ?? "")
-													),
+													cnpj: onlyDigits(String(prev.cnpj ?? "")),
 												}));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
-												errors.documento // ✅ ALTERADO
-													? "border-red-500"
-													: "border-gray-300"
+												errors.cnpj ? "border-red-500" : "border-gray-300"
 											} text-black`}
 										/>
-										{errors.documento && ( // ✅ ALTERADO
-											<p className="mt-1 text-xs text-red-600">
-												{errors.documento}
-											</p>
+										{errors.cnpj && (
+											<p className="mt-1 text-xs text-red-600">{errors.cnpj}</p>
 										)}
 									</label>
 
@@ -1371,23 +1317,15 @@ export default function ClientesPage() {
 														...prev,
 														dataRegistro: "Data inválida. Use dd/mm/aaaa.",
 													}));
-												else
-													setErrors((prev) => ({
-														...prev,
-														dataRegistro: undefined,
-													}));
+												else setErrors((prev) => ({ ...prev, dataRegistro: undefined }));
 											}}
 											placeholder="dd/mm/aaaa"
 											className={`w-full rounded border px-3 py-2 text-sm ${
-												errors.dataRegistro
-													? "border-red-500"
-													: "border-gray-300"
+												errors.dataRegistro ? "border-red-500" : "border-gray-300"
 											} text-black`}
 										/>
 										{errors.dataRegistro && (
-											<p className="mt-1 text-xs text-red-600">
-												{errors.dataRegistro}
-											</p>
+											<p className="mt-1 text-xs text-red-600">{errors.dataRegistro}</p>
 										)}
 									</label>
 
@@ -1397,10 +1335,7 @@ export default function ClientesPage() {
 											type="text"
 											value={editForm.contato ?? ""}
 											onChange={(e) =>
-												setEditForm((prev) => ({
-													...prev,
-													contato: e.target.value,
-												}))
+												setEditForm((prev) => ({ ...prev, contato: e.target.value }))
 											}
 											className="w-full rounded border border-gray-300 text-black px-3 py-2 text-sm"
 										/>
@@ -1412,13 +1347,8 @@ export default function ClientesPage() {
 											type="text"
 											value={editForm.telefone ?? ""}
 											onChange={(e) => {
-												const digits = e.target.value
-													.replace(/\D/g, "")
-													.slice(0, 11);
-												setEditForm((prev) => ({
-													...prev,
-													telefone: digits,
-												}));
+												const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+												setEditForm((prev) => ({ ...prev, telefone: digits }));
 											}}
 											onBlur={() => {
 												setEditForm((prev) => ({
@@ -1444,18 +1374,10 @@ export default function ClientesPage() {
 											onChange={(e) => {
 												const v = e.target.value;
 												setEditForm((prev) => ({ ...prev, email: v }));
-												if (!v.trim())
-													setErrors((prev) => ({
-														...prev,
-														email: "Email é obrigatório.",
-													}));
+												if (!v.trim()) setErrors((prev) => ({ ...prev, email: "Email é obrigatório." }));
 												else if (!isValidEmail(v))
-													setErrors((prev) => ({
-														...prev,
-														email: "Email inválido.",
-													}));
-												else
-													setErrors((prev) => ({ ...prev, email: undefined }));
+													setErrors((prev) => ({ ...prev, email: "Email inválido." }));
+												else setErrors((prev) => ({ ...prev, email: undefined }));
 											}}
 											className={`w-full rounded border px-3 py-2 text-sm ${
 												errors.email ? "border-red-500" : "border-gray-300"
@@ -1467,17 +1389,17 @@ export default function ClientesPage() {
 									</label>
 								</div>
 
-								<div className="mt-6 flex justify-end gap-3">
+								<div className="mt-6 flex justify-end gap-2">
 									<button
 										onClick={handleEditCancel}
-										className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+										className="rounded-xl bg-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-400"
 									>
 										Cancelar
 									</button>
 									<button
 										onClick={handleEditSave}
 										disabled={saving}
-										className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+										className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
 									>
 										{saving ? "Salvando..." : "Salvar"}
 									</button>
